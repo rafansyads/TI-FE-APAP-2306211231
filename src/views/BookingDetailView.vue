@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { get as httpGet, post } from '@/lib/api'
 import type { Booking, ApiEnvelope } from '@/types/models'
 import { useRoute, RouterLink } from 'vue-router'
@@ -57,10 +57,39 @@ async function load(){
   } catch(e: unknown){ error.value = e instanceof Error ? e.message : String(e) } finally { loading.value = false }
 }
 
+// UI state for actions
 const modals = ref<{type:'pay'|'cancel'|'refund'|null; open:boolean, amount?:number}>({type:null, open:false})
 function openModal(type:'pay'|'cancel'|'refund', amount?:number){ modals.value={type, open:true, amount} }
 function close(){ modals.value.open=false }
-async function act(){ if(!booking.value || !modals.value.type) return; const type=modals.value.type; if(type==='pay') await post('/bookings/status/pay',{data:{bookingId:booking.value.id,status:1,extraPay:booking.value.extraPay??0}}); if(type==='cancel') await post('/bookings/status/cancel',{data:{bookingId:booking.value.id,status:2,refund:booking.value.refund??0,extraPay:booking.value.extraPay??0}}); if(type==='refund') await post('/bookings/status/refund',{data:{bookingId:booking.value.id,refund:(modals.value.amount??booking.value.refund??0)}}); close(); await load() }
+async function act(){
+  if(!booking.value || !modals.value.type) return;
+  const type = modals.value.type;
+  const id = booking.value.id as string;
+  if(type==='pay') await post('/bookings/status/pay', { data: { bookingId: id } })
+  if(type==='cancel') await post('/bookings/status/cancel', { data: { bookingId: id } })
+  if(type==='refund') await post('/bookings/status/refund', { data: { bookingId: id } })
+  close();
+  await load();
+}
+
+// Derived button visibility from status (0..4)
+const canCancel = computed(() => {
+  const s = booking.value?.status ?? 0
+  return s !== 2 && s !== 4
+})
+const canRefund = computed(() => (booking.value?.status ?? -1) === 3)
+const canPay = computed(() => (booking.value?.status ?? -1) === 0)
+const canUpdate = computed(() => {
+  const s = booking.value?.status ?? 0
+  const extra = booking.value?.extraPay ?? 0
+  const refund = booking.value?.refund ?? 0
+  // Update is only allowed on status 0 or 1 when there is no pending extra/refund
+  return (s === 0 || s === 1) && extra === 0 && refund === 0
+})
+const onlyBack = computed(() => {
+  const s = booking.value?.status ?? 0
+  return s === 2 || s === 4
+})
 
 onMounted(load)
 </script>
@@ -75,10 +104,7 @@ onMounted(load)
             <span v-if="booking" :class="statusClass(booking.status)">{{ statusLabel(booking.status) }}</span>
           </div>
         </div>
-        <div class="header__actions" v-if="booking">
-          <button class="btn warn" @click="openModal('refund')">Request Refund</button>
-          <button class="btn danger" @click="openModal('cancel')">Cancel</button>
-        </div>
+        <div class="header__actions" v-if="booking"></div>
       </div>
       <div v-if="loading">Loading…</div>
       <p v-else-if="error" class="error">{{ error }}</p>
@@ -103,10 +129,13 @@ onMounted(load)
         <div class="footer">
           <RouterLink to="/bookings" class="btn">Back</RouterLink>
           <div class="spacer"></div>
-          <button class="btn success" @click="openModal('pay')">Pay</button>
-          <RouterLink class="btn" :to="`/bookings/update/${id}`">Update</RouterLink>
-          <button class="btn warn" @click="openModal('refund', booking?.refund || 0)">Refund</button>
-          <button class="btn danger" @click="openModal('cancel')">Cancel</button>
+          <template v-if="onlyBack"></template>
+          <template v-else>
+            <button v-if="canPay" class="btn success" @click="openModal('pay')">Pay</button>
+            <RouterLink v-if="canUpdate" class="btn" :to="`/bookings/update/${id}`">Update</RouterLink>
+            <button v-if="canRefund" class="btn warn" @click="openModal('refund', booking?.refund || 0)">Refund</button>
+            <button v-if="canCancel" class="btn danger" @click="openModal('cancel')">Cancel</button>
+          </template>
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref, onMounted, computed } from 'vue'
 import { get as httpGet, put } from '@/lib/api'
-import type { Booking, ApiEnvelope, CustomerSummary } from '@/types/models'
+import type { Booking, ApiEnvelope, CustomerSummary, RoomType } from '@/types/models'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import AppDropdown from '@/components/ui/AppDropdown.vue'
 import AppTextField from '@/components/ui/AppTextField.vue'
@@ -12,6 +12,19 @@ const route = useRoute()
 const router = useRouter()
 const id = route.params.id as string
 const roomTypePrice = ref<number>(0)
+// Derived dropdown sources
+const propertyOption = ref<{ label: string; value: string } | null>(null)
+const roomTypeOptions = ref<{ label: string; value: string; price?: number }[]>([])
+const roomOptions = ref<{ label: string; value: string }[]>([])
+const selectedRoomType = ref<string>('')
+const selectedRoomId = ref<string>('')
+const rtypesCache = ref<RoomType[]>([])
+const propertyDetail = ref<{
+  propertyId: string
+  propertyName: string
+  roomTypes: Array<{ roomTypeId:string; name:string; price:number; capacity:number }>
+  rooms: Array<{ roomId:string; name:string; roomTypeId:string; availabilityStatus:number }>
+} | null>(null)
 
 const form = reactive<Booking>({
   id,
@@ -45,13 +58,100 @@ onMounted(async () => {
     const data: Booking = isEnvelope(res) ? res.data : (res as Booking)
     Object.assign(form, data)
     // Map backend convenience field roomTypeName -> form.roomType (FE naming)
-    if ((data as any).roomTypeName && !form.roomType) {
-      form.roomType = String((data as any).roomTypeName)
+    if ('roomTypeName' in data && !form.roomType) {
+      const d = data as unknown as { roomTypeName?: string }
+      if (d.roomTypeName) form.roomType = String(d.roomTypeName)
     }
     if (typeof data.roomTypePrice === 'number') {
       roomTypePrice.value = data.roomTypePrice
     }
     selectedCustomerId.value = String(form.customerId || '')
+    // Build property/roomType/room dropdowns based on booking's propertyName
+    // 1) Find property id by name — support both envelope and raw array, and both Property and PropertySummary shapes
+    const propsRaw = await httpGet<unknown>('/property')
+    const unwrap = (x: unknown): unknown => {
+      if (x && typeof x === 'object' && 'data' in (x as Record<string, unknown>)) {
+        const obj = x as { data?: unknown }
+        return obj.data as unknown
+      }
+      return x
+    }
+    const propsList = unwrap(propsRaw)
+    type AnyProp = { id?: string; name?: string; propertyId?: string; propertyName?: string }
+    const normalized: Array<{ id: string; name: string }> = Array.isArray(propsList)
+      ? (propsList as AnyProp[])
+          .map(p => ({ id: p.id ?? p.propertyId ?? '', name: p.name ?? p.propertyName ?? '' }))
+          .filter(p => p.id && p.name)
+      : []
+    const matched = normalized.find(p => (p.name || '').trim() === (form.propertyName || '').trim())
+    if (matched) {
+      // Prefill property dropdown with exact id
+      propertyOption.value = { label: matched.name, value: matched.id }
+      // 2) Load property detail to get roomTypes and rooms (support envelope/raw)
+      const propDetailRaw = await httpGet<unknown>(`/property/${matched.id}`)
+      const d = unwrap(propDetailRaw) as Record<string, unknown> | null | undefined
+      if (d) {
+        const dObj = d as Record<string, unknown>
+        const roomTypesRaw = Array.isArray(dObj.roomTypes as unknown[]) ? (dObj.roomTypes as unknown[]) : []
+        const roomsRaw = Array.isArray(dObj.rooms as unknown[]) ? (dObj.rooms as unknown[]) : []
+        propertyDetail.value = {
+          propertyId: String((dObj.propertyId ?? matched.id) as string),
+          propertyName: String((dObj.propertyName ?? matched.name) as string),
+          roomTypes: roomTypesRaw.map((rtUnknown: unknown) => {
+            const rt = (rtUnknown ?? {}) as Record<string, unknown>
+            return {
+              roomTypeId: String((rt.roomTypeId ?? '') as string),
+              name: String((rt.name ?? '') as string),
+              price: Number((rt.price ?? 0) as number),
+              capacity: Number((rt.capacity ?? 0) as number),
+            }
+          }),
+          rooms: roomsRaw.map((rUnknown: unknown) => {
+            const r = (rUnknown ?? {}) as Record<string, unknown>
+            return {
+              roomId: String((r.roomId ?? '') as string),
+              name: String((r.name ?? '') as string),
+              roomTypeId: String((r.roomTypeId ?? '') as string),
+              availabilityStatus: Number((r.availabilityStatus ?? 0) as number),
+            }
+          })
+        }
+      }
+      // Build options from detail (fallback to rtypes cache if needed)
+      const rtypesByName = (propertyDetail.value?.roomTypes ?? []).map(rt=>({ label: rt.name, value: rt.name, price: rt.price }))
+      roomTypeOptions.value = rtypesByName
+      rtypesCache.value = (d?.roomTypes ?? []) as RoomType[]
+      // Preselect room type (exact match by name)
+      selectedRoomType.value = form.roomType || (roomTypeOptions.value.find(o => o.value === form.roomType)?.value) || (roomTypeOptions.value[0]?.value ?? '')
+      const rtMeta = propertyDetail.value?.roomTypes.find(rt => rt.name === selectedRoomType.value)
+      if (rtMeta) {
+        roomTypePrice.value = rtMeta.price
+        const available = (propertyDetail.value?.rooms ?? []).filter(r=>r.roomTypeId===rtMeta.roomTypeId && r.availabilityStatus===1)
+        roomOptions.value = available.map(r => ({ label: r.name, value: r.roomId }))
+      } else {
+        roomOptions.value = []
+      }
+      // Preselect room by id (fallback to name if id missing)
+      const preRoomId = form.roomId || ''
+      let currentRoom = (propertyDetail.value?.rooms || []).find(r => r.roomId === preRoomId)
+      if (!currentRoom && form.roomName) {
+        currentRoom = (propertyDetail.value?.rooms || []).find(r => r.name === form.roomName)
+      }
+      if (!currentRoom && roomOptions.value.length > 0) {
+        const firstId = roomOptions.value[0]?.value
+        currentRoom = (propertyDetail.value?.rooms || []).find(r => r.roomId === firstId)
+      }
+      if (currentRoom) {
+        selectedRoomId.value = currentRoom.roomId
+        form.roomId = currentRoom.roomId
+        form.roomName = currentRoom.name
+      } else if (form.roomId && form.roomName) {
+        // Final fallback: at least show the current booked room as the only option
+        roomOptions.value = [{ label: form.roomName, value: form.roomId }]
+        selectedRoomId.value = form.roomId
+      }
+    }
+
     // Load customers after we have the form so we can preselect
     const list = await httpGet<ApiEnvelope<CustomerSummary[]>>('/bookings/customers')
     customers.value = list.data ?? []
@@ -93,6 +193,9 @@ async function submit(){
     const base = Number.isFinite(roomTypePrice.value) ? roomTypePrice.value : 0
     const breakfast = form.breakfast ? 50_000 : 0
     const totalPriceClient = totalDays * (base + breakfast)
+    if (form.refund !== 0 || form.extraPay !== 0) {
+      throw new Error('Cannot update booking while there is pending refund or extra payment.')
+    }
     const req = {
       bookingId: form.id!,
       checkInDate,
@@ -105,8 +208,12 @@ async function submit(){
       customerEmail: String(form.customerEmail ?? ''),
       customerPhone: normalizePhone(String(form.customerPhone ?? '')),
       isBreakfast: Boolean(form.breakfast),
+
+      // If it gets here and the refund != 0 || extraPay != 0, then the program is error
       refund: form.refund ?? 0,
       extraPay: form.extraPay ?? 0,
+
+      // Capacity will be set to 1 if not available to ensure valid booking
       capacity: Math.max(1, Number(form.capacity ?? 1)),
       roomId: String(form.roomId ?? ''),
       propertyName: form.propertyName ?? '',
@@ -138,6 +245,75 @@ function onCustomerIdInput(){
   const v = String(form.customerId||'').trim()
   customerIdError.value = v && !isUuid(v) ? 'Invalid UUID format' : ''
 }
+async function onSelectRoomType(){
+  const label = selectedRoomType.value
+  // Update based on propertyDetail similar to BookingCreateView
+  const rtMeta = propertyDetail.value?.roomTypes.find(rt=>rt.name===label)
+  roomTypePrice.value = rtMeta?.price ?? 0
+  roomTypeOptions.value = (propertyDetail.value?.roomTypes ?? []).map(rt => ({ label: rt.name, value: rt.name, price: rt.price }))
+  const available = (propertyDetail.value?.rooms ?? []).filter(r=> r.roomTypeId === (rtMeta?.roomTypeId ?? '') && r.availabilityStatus===1)
+  roomOptions.value = available.map(r => ({ label: r.name, value: r.roomId }))
+  // Reflect selection on form values
+  form.roomType = label
+  // If no rooms yet, fetch fresh from server (with date filters if available)
+  if (roomOptions.value.length === 0 && propertyOption.value?.value) {
+    await loadRoomsForType(propertyOption.value.value, label)
+  }
+  // Choose first available
+  selectedRoomId.value = roomOptions.value[0]?.value ?? ''
+  const found = roomOptions.value.find(o => o.value === selectedRoomId.value)
+  form.roomId = found?.value || ''
+  form.roomName = found?.label || ''
+}
+
+async function loadRoomsForType(propertyId: string, roomTypeName: string){
+  const params: string[] = []
+  if (form.checkIn) params.push(`checkIn=${encodeURIComponent(form.checkIn)}`)
+  if (form.checkOut) params.push(`checkOut=${encodeURIComponent(form.checkOut)}`)
+  const qs = params.length ? `?${params.join('&')}` : ''
+  const detailRaw = await httpGet<unknown>(`/property/${propertyId}${qs}`)
+  const unwrapped = (x: unknown): Record<string, unknown> | null | undefined => {
+    if (x && typeof x === 'object' && 'data' in (x as Record<string, unknown>)) {
+      return (x as { data: unknown }).data as Record<string, unknown>
+    }
+    return x as (Record<string, unknown> | null | undefined)
+  }
+  const d = unwrapped(detailRaw)
+  const dObj = (d ?? {}) as Record<string, unknown>
+  const roomTypesRaw = Array.isArray(dObj.roomTypes as unknown[]) ? (dObj.roomTypes as unknown[]) : []
+  const roomsRaw = Array.isArray(dObj.rooms as unknown[]) ? (dObj.rooms as unknown[]) : []
+  propertyDetail.value = {
+    propertyId: String((dObj.propertyId ?? propertyId) as string),
+    propertyName: String((dObj.propertyName ?? (propertyOption.value?.label ?? '')) as string),
+    roomTypes: roomTypesRaw.map((rtUnknown: unknown) => {
+      const rt = (rtUnknown ?? {}) as Record<string, unknown>
+      return {
+        roomTypeId: String((rt.roomTypeId ?? '') as string),
+        name: String((rt.name ?? '') as string),
+        price: Number((rt.price ?? 0) as number),
+        capacity: Number((rt.capacity ?? 0) as number),
+      }
+    }),
+    rooms: roomsRaw.map((rUnknown: unknown) => {
+      const r = (rUnknown ?? {}) as Record<string, unknown>
+      return {
+        roomId: String((r.roomId ?? '') as string),
+        name: String((r.name ?? '') as string),
+        roomTypeId: String((r.roomTypeId ?? '') as string),
+        availabilityStatus: Number((r.availabilityStatus ?? 0) as number),
+      }
+    })
+  }
+  const rtMeta = propertyDetail.value.roomTypes.find(rt=>rt.name===roomTypeName)
+  const available = propertyDetail.value.rooms.filter(r=> r.roomTypeId === (rtMeta?.roomTypeId ?? '') && r.availabilityStatus===1)
+  roomOptions.value = available.map(r => ({ label: r.name, value: r.roomId }))
+}
+
+function onSelectRoom(){
+  form.roomId = selectedRoomId.value
+  const found = roomOptions.value.find(o => o.value === selectedRoomId.value)
+  if (found) form.roomName = found.label
+}
 </script>
 
 <template>
@@ -146,10 +322,20 @@ function onCustomerIdInput(){
     <div v-if="loading">Loading…</div>
     <form v-else class="form" @submit.prevent="submit">
       <div class="grid2">
+        <label>Property
+          <AppDropdown :model-value="propertyOption?.value" :options="propertyOption ? [propertyOption] : []" placeholder="Property" disabled />
+        </label>
+        <label>Room Type
+          <AppDropdown v-model="(selectedRoomType as any)" :options="roomTypeOptions" placeholder="Select Room Type" @change="onSelectRoomType" />
+        </label>
+      </div>
+      <div class="grid2">
+        <label>Room
+          <AppDropdown v-model="(selectedRoomId as any)" :options="roomOptions" placeholder="Select Room" @change="onSelectRoom" />
+        </label>
         <label>Customer (existing)
           <AppDropdown v-model="(selectedCustomerId as any)" :options="customerOptions" :loading="loadingCustomers" placeholder="Select Customer" @change="onSelectCustomer" />
         </label>
-        <span></span>
       </div>
       <div class="grid2">
         <label>Customer ID

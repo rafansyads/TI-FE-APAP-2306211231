@@ -37,9 +37,14 @@ const total = ref<number>(0)
 async function load() {
   loading.value = true; error.value = null
   try {
-    const payload = await get<ChartResponse>(`/bookings/chart?month=${month.value}&year=${year.value}`)
-    items.value = payload.items || []
-    total.value = (items.value || []).reduce((s, it) => s + (it.profit || 0), 0)
+  // Backend returns a BaseResponseDto wrapper: { status, message, data: { labels, data, items } }
+  const res = await get<unknown>(`/bookings/chart?month=${month.value}&year=${year.value}`)
+  const envelope = res as unknown as { data?: any }
+  const payload = envelope && envelope.data ? envelope.data as ChartResponse : (res as unknown as ChartResponse)
+  // support alternate key 'values' returned by some backends
+  const series = (payload && (payload.data || (payload as any).values)) || []
+  items.value = payload.items || []
+  total.value = (items.value || []).reduce((s, it) => s + (it.profit || 0), 0)
     const Chart = await ensureChartJs()
     const ctx = canvasRef.value?.getContext('2d')
     if (!ctx) throw new Error('Canvas not available')
@@ -49,7 +54,7 @@ async function load() {
       data: {
         labels: payload.labels || [],
         datasets: [
-          { label: 'Profit', data: payload.data || [], backgroundColor: '#3e63dd' }
+          { label: 'Profit', data: series as number[] || [], backgroundColor: '#3e63dd' }
         ]
       }
     })

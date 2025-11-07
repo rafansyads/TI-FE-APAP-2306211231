@@ -129,11 +129,45 @@ function daysBetween(a: string, b: string) {
   }
 }
 
-function composeDateTime(dateStr: string, hour: number, minute: number) {
+function composeDateTime(dateStr: string, hour: number, minute: number, second: number) {
   if (!dateStr) return ''
   const hh = String(hour).padStart(2, '0')
   const mm = String(minute).padStart(2, '0')
-  return `${dateStr}T${hh}:${mm}:00`
+  const ss = String(second).padStart(2, '0')
+  return `${dateStr}T${hh}:${mm}:${ss}`
+}
+
+function extractHourMinuteSecond(dateTimeStr: string): { hour: number; minute: number; second: number } | null {
+  try {
+    const dt = new Date(dateTimeStr)
+    if (isNaN(dt.getTime())) return null
+    return { hour: dt.getHours(), minute: dt.getMinutes(), second: dt.getSeconds() }
+  } catch {
+    return null
+  }
+}
+
+function compareDates(a: string, b: string): number {
+  try {
+    const d1 = new Date(a)
+    const d2 = new Date(b)
+    return d1.getTime() - d2.getTime()
+  } catch {
+    return 0
+  }
+}
+
+function normalizeDate(dateStr: string): string {
+  try {
+    const dt = new Date(dateStr)
+    if (isNaN(dt.getTime())) return ''
+    const y = dt.getFullYear()
+    const m = String(dt.getMonth() + 1).padStart(2, '0')
+    const d = String(dt.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  } catch {
+    return ''
+  }
 }
 
 function normalizePhone(raw: string) {
@@ -165,8 +199,49 @@ async function submit() {
       form.customerId = gen
     }
     const totalDays = daysBetween(form.checkIn, form.checkOut)
-    const checkInDate = composeDateTime(form.checkIn, 14, 0)
-    const checkOutDate = composeDateTime(form.checkOut, 12, 0)
+
+    // The time is marked from the check-in date: now()
+    // If 00.00 <= check-in time < 14.00, then enforce to 14.00
+    // Else 14.00 <= check-in time <= 23.59 leave as is
+    const currentTime = new Date().toLocaleDateString()
+    const currentDate = normalizeDate(currentTime.slice(0, 10))
+    const cm = extractHourMinuteSecond(`${form.checkIn}T${new Date().toTimeString().substring(0, 8)}`)
+    // Only do this check if check-in date is today
+    if (cm && compareDates(form.checkIn, currentDate) === 0) {
+      // Firstly add 1 second to avoid edge cases & exceptions in backend
+      cm.second += 1
+      if (cm.second >= 60) {
+        cm.second = 0
+        cm.minute += 1
+        if (cm.minute >= 60) {
+          cm.minute = 0
+          cm.hour += 1
+          if (cm.hour >= 24) {
+            cm.hour = 23
+            cm.minute = 59
+            cm.second = 59
+          }
+        }
+      }
+
+      // Recheck again after enforcing +1 second 14.00 if before that and check-in date is today
+      if (form.checkIn === currentTime && cm.hour < 14) {
+        cm.hour = 14
+        cm.minute = 0
+        cm.second = 0
+      }
+    }
+    // If check-in date is today
+    let checkInDate: string
+    if (compareDates(form.checkIn, currentDate) === 0 && cm) {
+      checkInDate = composeDateTime(form.checkIn, cm.hour, cm.minute, cm.second)
+    } else {
+      checkInDate = composeDateTime(form.checkIn, 14, 0, 0)
+    }
+
+    // Always set check-out time to 12.00
+    const checkOutDate = composeDateTime(form.checkOut, 12, 0, 0)
+
     const base = Number.isFinite(roomTypePrice.value) ? roomTypePrice.value : 0
     const breakfast = form.breakfast ? 50_000 : 0
     const totalPriceClient = totalDays * (base + breakfast)

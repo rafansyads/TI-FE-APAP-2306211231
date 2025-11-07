@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref, computed } from 'vue'
-import { get as httpGet, put } from '@/lib/api'
+import { get as httpGet, put, post } from '@/lib/api'
 import type { Property, RoomType, ApiEnvelope, OwnerSummary } from '@/types/models'
 import { useRoute, useRouter } from 'vue-router'
 import AppDropdown from '@/components/ui/AppDropdown.vue'
@@ -36,10 +36,65 @@ const form = reactive<Property>({
   roomTypes: []
 })
 
+// Snapshot of totals before editing, for user reference
+const totalUnitsBefore = ref(0)
+const totalCapacityBefore = ref(0)
+
+function isEnvelope<T>(o: unknown): o is ApiEnvelope<T> {
+  return !!o && typeof o === 'object' && 'data' in (o as Record<string, unknown>)
+}
+
 async function load(){
   try{
-    const data = await httpGet<Property>(`/property/${id}`)
-    Object.assign(form, data)
+    const res = await httpGet<ApiEnvelope<Record<string, unknown>>|Record<string, unknown>>(`/property/${id}`)
+    const raw = isEnvelope<Record<string, unknown>>(res) ? res.data : res
+    // Map backend PropertyDetailDto -> UI Property form
+    const typeNum = Number((raw as Record<string, unknown>)['type'] ?? 1)
+    const typeStr = ({1:'Hotel',2:'Villa',3:'Apartment'} as const)[typeNum as 1|2|3] ?? 'Hotel'
+    const roomTypesRaw = (raw as Record<string, unknown>)['roomTypes'] as Array<Record<string, unknown>> | undefined
+    const roomsRaw = (raw as Record<string, unknown>)['rooms'] as Array<Record<string, unknown>> | undefined
+    // Build a map roomTypeId -> current unit count (number of rooms)
+    const unitsByRt: Record<string, number> = {}
+    if (Array.isArray(roomsRaw)) {
+      for (const r of roomsRaw) {
+        const rtId = String(r['roomTypeId'] ?? '')
+        if (!rtId) continue
+        unitsByRt[rtId] = (unitsByRt[rtId] ?? 0) + 1
+      }
+    }
+    const mappedRoomTypes: RoomType[] = Array.isArray(roomTypesRaw)
+      ? roomTypesRaw.map(rt => {
+          const id = String(rt['roomTypeId'] ?? '')
+          const capacity = Number(rt['capacity'] ?? 0)
+          const unit = unitsByRt[id] ?? 0
+          return {
+            id,
+            name: String(rt['name'] ?? ''),
+            price: Number(rt['price'] ?? 0),
+            capacity,
+            unit,
+            description: '',
+            facility: '',
+            floor: 0,
+          }
+        })
+      : []
+
+    // Compute before totals (sum of units and sum of capacity*unit)
+    totalUnitsBefore.value = mappedRoomTypes.reduce((acc, rt) => acc + (rt.unit || 0), 0)
+    totalCapacityBefore.value = mappedRoomTypes.reduce((acc, rt) => acc + (rt.capacity || 0) * (rt.unit || 0), 0)
+
+    Object.assign(form, {
+      id: String((raw as Record<string, unknown>)['propertyId'] ?? id),
+      name: String((raw as Record<string, unknown>)['propertyName'] ?? ''),
+      type: typeStr,
+      province: String((raw as Record<string, unknown>)['provinceName'] ?? ''),
+      address: String((raw as Record<string, unknown>)['address'] ?? ''),
+      description: String((raw as Record<string, unknown>)['description'] ?? ''),
+      ownerId: String((raw as Record<string, unknown>)['ownerId'] ?? ''),
+      ownerName: String((raw as Record<string, unknown>)['ownerName'] ?? ''),
+      roomTypes: mappedRoomTypes,
+    })
     selectedOwnerId.value = String(form.ownerId || '')
   }catch(e: unknown){
     error.value = e instanceof Error ? e.message : String(e)
@@ -82,6 +137,20 @@ async function submit(){
   try{
     const typeCode = ({ Hotel: 1, Villa: 2, Apartment: 3 } as const)[form.type]
     const provinceCode = Object.entries(provincesMap.value).find(([,n]) => n === form.province)?.[0]
+    // Map existing room types (with id) to RoomTypeUpdateRequest for property-level update
+    const roomTypeUpdates = (form.roomTypes || [])
+      .filter(rt => !!rt.id)
+      .map(rt => ({
+        roomTypeId: String(rt.id),
+        // name is optional and ignored at property-level; omit to avoid unintended renames
+        price: Math.trunc(Number(rt.price || 0)),
+        description: rt.description,
+        capacity: Math.trunc(Number(rt.capacity || 1)),
+        facility: rt.facility,
+        // floor is validated in backend request; include existing value even if ignored logically
+        floor: Math.trunc(Number(rt.floor || 0))
+      }))
+
     const req = {
       propertyId: form.id,
       propertyName: form.name,
@@ -91,10 +160,34 @@ async function submit(){
       description: form.description,
       ownerName: form.ownerName,
       ownerId: form.ownerId,
-      // omit roomTypes here; separate flow exists for adjusting rooms
+      roomTypes: roomTypeUpdates
     }
+    // 1) Update property + existing room types
     await put('/property/update', { data: req })
-    toast.showSuccess('Property updated')
+
+    // 2) Add any newly created room types (without id) via updateroom, one by one
+    const newTypes = (form.roomTypes || []).filter(rt => !rt.id && (rt.name || '').trim().length > 0)
+    for(const rt of newTypes){
+      const rooms = Array.from({ length: Math.max(0, Math.trunc(Number(rt.unit || 0))) }, () => ({ availabilityStatus: 1, activeRoom: 1 }))
+      const addReq = {
+        propertyId: form.id,
+        name: rt.name,
+        price: Math.trunc(Number(rt.price || 0)),
+        description: rt.description,
+        capacity: Math.trunc(Number(rt.capacity || 1)),
+        facility: rt.facility,
+        floor: Math.trunc(Number(rt.floor || 0)),
+        rooms
+      }
+      await post('/property/updateroom', { data: addReq })
+    }
+
+    // 3) Ensure totalRoom remains accurate
+    if(newTypes.length > 0){
+      await post(`/property/recompute-totalrooms/${form.id}`, { data: {} })
+    }
+
+    toast.showSuccess('Property and room types updated')
     setTimeout(() => router.push(`/property/${id}`), 800)
   }catch(e: unknown){
     toast.showError(e instanceof Error ? e.message : String(e))
@@ -110,6 +203,14 @@ onMounted(() => { load(); loadProvinces(); loadOwners() })
     <div v-if="loading">Loading…</div>
     <div v-else>
       <form @submit.prevent="submit" class="form">
+        <div class="grid2">
+          <label>Total Units (before)
+            <input :value="totalUnitsBefore" disabled class="disabled" />
+          </label>
+          <label>Total Capacity (before)
+            <input :value="totalCapacityBefore" disabled class="disabled" />
+          </label>
+        </div>
         <div class="grid2">
           <label>Property ID<input :value="form.id" disabled class="disabled" /></label>
           <label>Property Name<input v-model="form.name" /></label>
@@ -146,8 +247,14 @@ onMounted(() => { load(); loadProvinces(); loadOwners() })
           </div>
           <label>Description<textarea v-model="(rt.description as any)" rows="2" /></label>
           <div class="grid2">
-            <label>Capacity<input type="number" v-model.number="rt.capacity" /></label>
-            <label>Price<input type="number" v-model.number="rt.price" /></label>
+            <label>Capacity per Room<input type="number" v-model.number="rt.capacity" min="0" /></label>
+            <label>Price<input type="number" v-model.number="rt.price" min="0" step="1" /></label>
+          </div>
+          <div class="grid2">
+            <label>Unit (rooms count)
+              <input type="number" v-model.number="(rt.unit as any)" :disabled="!!rt.id" min="0" :class="{ disabled: !!rt.id }" />
+            </label>
+            <span></span>
           </div>
         </div>
 

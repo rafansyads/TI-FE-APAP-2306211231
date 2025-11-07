@@ -60,8 +60,9 @@ onMounted(async () => {
       extraPay: d.extraPay ?? 0,
       capacity: d.capacity ?? 1,
       roomId: d.roomId ?? '',
-      roomName: '',
-      propertyName: ''
+      // Prefer backend-provided names if present
+      roomName: (d as any).roomName ?? '',
+      propertyName: (d as any).propertyName ?? ''
     }))
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -124,7 +125,8 @@ async function processCheckIn(){
           <td>{{ b.totalPrice }}</td>
           <td class="row">
             <RouterLink class="btn" :to="`/bookings/${b.id}`">Detail</RouterLink>
-            <RouterLink class="btn" :to="`/bookings/update/${b.id}`">Update</RouterLink>
+            <RouterLink v-if="((b.status===0 || b.status===1) && (b.refund === 0 && b.extraPay === 0))" class="btn" :to="`/bookings/update/${b.id}`">Update</RouterLink>
+            <button v-else class="btn" disabled title="Update disabled while waiting/paid">Update</button>
           </td>
         </tr>
       </tbody>
