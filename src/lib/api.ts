@@ -1,5 +1,16 @@
 // Simple API helper using the base URL from Vite env
-export const API_BASE = (import.meta.env.VITE_API_URL as string) ?? ''
+// Fallback to same-origin "/api" so production works via Nginx proxy
+export const API_BASE =
+  (import.meta.env.VITE_API_URL as string) || (typeof window !== 'undefined' ? '/api' : '')
+
+if (typeof window !== 'undefined') {
+  const isProd = import.meta.env.PROD
+  if (!API_BASE) {
+    console.warn('[api] VITE_API_URL not set; using empty base. Calls will hit the frontend origin.')
+  } else if (isProd && location.protocol === 'https:' && API_BASE.startsWith('http:')) {
+    console.warn('[api] Mixed content risk: API base is http on an https page ->', API_BASE)
+  }
+}
 
 export type ApiInit = RequestInit & { json?: unknown }
 
