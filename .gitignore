@@ -7,6 +7,8 @@
 
 ### dotenv ###
 .env
+.env.*
+!.env.example
 
 ### Eclipse ###
 .metadata
@@ -431,7 +433,10 @@ GitHub.sublime-settings
 .Python
 [Bb]in
 [Ii]nclude
+# Allow application source lib folder
 [Ll]ib
+!src/lib/
+# Allow application source lib folder
 [Ll]ib64
 [Ll]ocal
 [Ss]cripts
@@ -550,6 +555,3 @@ gradle-app.setting
 *.hprof
 
 # End of https://www.toptal.com/developers/gitignore/api/windows,macos,linux,homebrew,gradle,java,node,vue,vuejs,visualstudiocode,intellij+all,eclipse,sublimetext,nanoc,vim,notepadpp,dbeaver,venv,dotenv
-
-# Custom ignores for travel-apap-accommodation project
-.github/copilot-instructions.md

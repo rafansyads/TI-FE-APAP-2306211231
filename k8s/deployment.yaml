@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: travel-apap-accommodation-fe
+  labels:
+    app: travel-apap-accommodation-fe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: travel-apap-accommodation-fe
+  template:
+    metadata:
+      labels:
+        app: travel-apap-accommodation-fe
+    spec:
+      containers:
+        - name: travel-apap-accommodation-fe
+          image: rafansyadsui/travel-apap-accommodation-fe:REPLACE_ME_TAG
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+              
