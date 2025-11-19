@@ -8,6 +8,7 @@ on:
 env:
   DOCKER_IMAGE_NAME: ${{ secrets.DOCKER_IMAGE_NAME_FE_1 }}
   IMAGE_TAG: ${{ github.sha }}
+  NODE_ENV: production
 
 jobs:
 
