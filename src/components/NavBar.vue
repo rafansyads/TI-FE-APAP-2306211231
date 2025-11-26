@@ -1,11 +1,14 @@
 <template>
-  <header class="nav">
+  <header v-if="authenticated" class="nav">
     <div class="nav__inner">
       <RouterLink to="/" class="brand">TravelAPAP</RouterLink>
       <nav class="links">
+        <RouterLink to="/landing">Services</RouterLink>
+        <RouterLink to="/">Home</RouterLink>
         <RouterLink to="/property">Property</RouterLink>
         <RouterLink to="/bookings">Bookings</RouterLink>
         <RouterLink to="/chart">Statistics</RouterLink>
+        <LogoutButton v-if="authenticated" />
       </nav>
     </div>
   </header>
@@ -13,6 +16,12 @@
 
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
+import LogoutButton from '@/components/ui/LogoutButton.vue'
+import { storeToRefs } from 'pinia'
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
+const { authenticated } = storeToRefs(auth)
 </script>
 
 <style scoped>
@@ -39,8 +48,10 @@ import { RouterLink } from 'vue-router'
   color: var(--vt-c-indigo);
   text-decoration: none;
 }
-.links a {
+.links > * {
   margin-left: 1rem;
+}
+.links a, .links :where(button, a) {
   text-decoration: none;
 }
 .links a.router-link-active {
