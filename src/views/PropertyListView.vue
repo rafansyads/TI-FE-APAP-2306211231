@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 import { get } from '@/lib/api'
 import type { ApiEnvelope, PropertySummary } from '@/types/models'
 import { RouterLink } from 'vue-router'
+import { hasRole } from '@/lib/rbac'
+import { getAccessToken } from '@/lib/auth'
 
 const raw = ref<PropertySummary[]>([])
 const loading = ref(true)
@@ -43,13 +45,17 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+// RBAC: only show create button to SUPERADMIN or ACCOMMODATION_OWNER
+const token = getAccessToken()
+const canCreate = hasRole(['SUPERADMIN','ACCOMMODATION_OWNER','ROLE_SUPERADMIN','ROLE_ACCOMMODATION_OWNER'], token)
 </script>
 
 <template>
   <section>
     <div class="toolbar">
       <div class="left">
-        <RouterLink class="btn primary" to="/property/create">Add Property</RouterLink>
+          <RouterLink v-if="canCreate" class="btn primary" to="/property/create">Add Property</RouterLink>
       </div>
       <div class="filters">
         <select v-model="(typeFilter as any)">
@@ -89,7 +95,10 @@ onMounted(async () => {
               <span :class="['badge', p.activeStatus === 1 ? 'success' : 'danger']">{{ p.activeStatus === 1 ? 'Active' : 'Non-Active' }}</span>
             </td>
             <td>{{ p.totalRoom }}</td>
-            <td><RouterLink class="btn small" :to="`/property/${p.propertyId}`">Detail</RouterLink></td>
+            <td>
+              <RouterLink class="btn small" :to="`/property/${p.propertyId}`">Detail</RouterLink>
+              <RouterLink class="btn small" :to="`/property/reviews?propertyId=${p.propertyId}`" style="margin-left:.4rem">Reviews</RouterLink>
+            </td>
           </tr>
         </tbody>
       </table>

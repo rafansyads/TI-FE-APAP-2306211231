@@ -153,8 +153,23 @@ onMounted(async () => {
     }
 
     // Load customers after we have the form so we can preselect
-    const list = await httpGet<ApiEnvelope<CustomerSummary[]>>('/bookings/customers')
-    customers.value = list.data ?? []
+    try {
+      const [profileRes, bookingsRes] = await Promise.all([
+        httpGet<ApiEnvelope<any>>('/profile/customers').catch(() => ({ data: [] })),
+        httpGet<ApiEnvelope<CustomerSummary[]>>('/bookings/customers').catch(() => ({ data: [] })),
+      ])
+      const profiles = profileRes?.data ?? []
+      const bookingCustomers = bookingsRes?.data ?? []
+      const phoneMap = new Map<string, string>((bookingCustomers || []).map((c: any) => [String(c.customerId), c.customerPhone || '']))
+      customers.value = (profiles || []).map((p: any) => ({
+        customerId: p.id ?? p.customerId ?? '',
+        customerName: p.name ?? p.customerName ?? '',
+        customerEmail: p.email ?? p.customerEmail ?? '',
+        customerPhone: phoneMap.get(p.id ?? '') ?? '',
+      }))
+    } catch (err) {
+      customers.value = []
+    }
   }catch(e: unknown){ error.value = e instanceof Error ? e.message : String(e) }
   finally{ loading.value = false; loadingCustomers.value = false }
 })
@@ -319,11 +334,11 @@ function onSelectRoom(){
 <template>
   <section>
     <h2>Update Booking – {{ id }}</h2>
-    <div v-if="loading">Loading…</div>
-    <form v-else class="form" @submit.prevent="submit">
+    <div :key="'loading'" v-show="loading">Loading…</div>
+    <form :key="'form'" class="form" v-show="!loading" @submit.prevent="submit">
       <div class="grid2">
         <label>Property
-          <AppDropdown :model-value="propertyOption?.value" :options="propertyOption ? [propertyOption] : []" placeholder="Property" disabled />
+          <div class="readonly">{{ propertyOption?.label ?? '' }}</div>
         </label>
         <label>Room Type
           <AppDropdown v-model="(selectedRoomType as any)" :options="roomTypeOptions" placeholder="Select Room Type" @change="onSelectRoomType" />

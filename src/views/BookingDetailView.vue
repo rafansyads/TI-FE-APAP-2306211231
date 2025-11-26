@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
+import { hasRole } from '@/lib/rbac'
+import { getAccessToken } from '@/lib/auth'
 import { get as httpGet, post } from '@/lib/api'
 import type { Booking, ApiEnvelope } from '@/types/models'
 import { useRoute, RouterLink } from 'vue-router'
@@ -92,6 +94,10 @@ const onlyBack = computed(() => {
 })
 
 onMounted(load)
+
+// RBAC: allowed roles to view/act on booking details
+const token = getAccessToken()
+const canActOnBooking = hasRole(['SUPERADMIN','ACCOMMODATION_OWNER','CUSTOMER','ROLE_SUPERADMIN','ROLE_ACCOMMODATION_OWNER','ROLE_CUSTOMER'], token)
 </script>
 
 <template>
@@ -131,10 +137,11 @@ onMounted(load)
           <div class="spacer"></div>
           <template v-if="onlyBack"></template>
           <template v-else>
-            <button v-if="canPay" class="btn success" @click="openModal('pay')">Pay</button>
-            <RouterLink v-if="canUpdate" class="btn" :to="`/bookings/update/${id}`">Update</RouterLink>
-            <button v-if="canRefund" class="btn warn" @click="openModal('refund', booking?.refund || 0)">Refund</button>
-            <button v-if="canCancel" class="btn danger" @click="openModal('cancel')">Cancel</button>
+            <button v-if="canActOnBooking && canPay" class="btn success" @click="openModal('pay')">Pay</button>
+            <RouterLink v-if="canActOnBooking && canUpdate" class="btn" :to="`/bookings/update/${id}`">Update</RouterLink>
+            <button v-if="canActOnBooking && canRefund" class="btn warn" @click="openModal('refund', booking?.refund || 0)">Refund</button>
+            <button v-if="canActOnBooking && canCancel" class="btn danger" @click="openModal('cancel')">Cancel</button>
+            <RouterLink v-if="booking && booking.status===4 && hasRole(['CUSTOMER','ROLE_CUSTOMER'], getAccessToken())" class="btn" :to="{ name: 'review-create', query: { bookingId: booking.id } }">Write Review</RouterLink>
           </template>
         </div>
       </div>

@@ -1,26 +1,22 @@
-<script lang="ts">
-import { defineComponent } from 'vue'
+<script setup lang="ts">
+import { defineProps, defineEmits } from 'vue'
 
-export default defineComponent({
-  name: 'AppTextField',
-  props: {
-    modelValue: { type: [String, Number], default: '' },
-    placeholder: { type: String, default: '' },
-    type: { type: String, default: 'text' },
-    disabled: { type: Boolean, default: false },
-    error: { type: String, default: '' },
-    help: { type: String, default: '' },
-  },
-  emits: ['update:modelValue','input'],
-  setup(props, { emit }){
-    function onInput(ev: Event){
-      const v = (ev.target as HTMLInputElement).value
-      emit('update:modelValue', v)
-      emit('input', v)
-    }
-    return { props, onInput }
-  }
+const props = defineProps({
+  modelValue: { type: [String, Number], default: '' },
+  placeholder: { type: String, default: '' },
+  type: { type: String, default: 'text' },
+  disabled: { type: Boolean, default: false },
+  error: { type: String, default: '' },
+  help: { type: String, default: '' },
 })
+
+const emit = defineEmits(['update:modelValue', 'input'])
+
+function onInput(ev: Event) {
+  const v = (ev.target as HTMLInputElement).value
+  emit('update:modelValue', v)
+  emit('input', v)
+}
 </script>
 
 <template>

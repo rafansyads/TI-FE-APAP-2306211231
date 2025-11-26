@@ -75,6 +75,16 @@ export async function apiFetch<T>(path: string, init: ApiInit = {}): Promise<T> 
           })
           // capture rotated tokens
           try { extractTokensFromHeaders(refreshRes) } catch {}
+          // Also attempt to read tokens from JSON body (some flows return tokens in body instead of headers)
+          try {
+            const cloned = refreshRes.clone()
+            const j = await cloned.json().catch(() => null)
+            if (j && typeof j === 'object') {
+              const maybeToken = (j as any).data?.token || (j as any).data?.accessToken || (j as any).accessToken || (j as any).token || (j as any).jwt
+              const maybeRefresh = (j as any).data?.refreshToken || (j as any).refreshToken
+              if (maybeToken || maybeRefresh) setTokens(maybeToken, maybeRefresh)
+            }
+          } catch {}
           if (refreshRes.ok) {
             // retry original request once with new token
             const newToken = getAccessToken()

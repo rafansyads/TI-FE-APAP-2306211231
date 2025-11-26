@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { hasRole } from '@/lib/rbac'
+import { getAccessToken } from '@/lib/auth'
 import { get, post } from '@/lib/api'
 import type { Booking, ApiEnvelope } from '@/types/models'
 import { RouterLink } from 'vue-router'
@@ -71,6 +73,10 @@ onMounted(async () => {
   }
 })
 
+// RBAC: Create booking only allowed for customers
+const token = getAccessToken()
+const canCreateBooking = hasRole(['CUSTOMER','ROLE_CUSTOMER'], token)
+
 async function processCheckIn(){
   try{
     processing.value = true
@@ -107,7 +113,8 @@ async function processCheckIn(){
   <section>
     <h2>All Booking</h2>
     <div class="actions">
-      <RouterLink class="btn primary" to="/bookings/create">Create Booking</RouterLink>
+      <RouterLink v-if="canCreateBooking" class="btn primary" to="/bookings/create">Create Booking</RouterLink>
+      <div v-else style="align-self:center" class="muted">Create booking available to customers only.</div>
       <button class="btn" @click="processCheckIn" :disabled="processing">Process Check-in Today</button>
       <span v-if="processing">Processing…</span>
       <span v-if="!processing && changed>0">Updated {{ changed }} booking(s)</span>

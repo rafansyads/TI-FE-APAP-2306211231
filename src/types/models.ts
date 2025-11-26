@@ -88,3 +88,29 @@ export interface CustomerSummary {
   customerEmail?: string
   customerPhone?: string
 }
+
+export interface AccommodationReview {
+  id?: string
+  bookingId?: string
+  propertyId?: string
+  propertyName?: string
+  customerId?: UUID
+  customerName?: string
+  overallRating?: number
+  cleanlinessRating?: number
+  facilityRating?: number
+  serviceRating?: number
+  valueRating?: number
+  comment?: string
+  createdAt?: string
+}
+
+export interface CreateAccommodationReview {
+  bookingId: string
+  overallRating: number
+  cleanlinessRating: number
+  facilityRating: number
+  serviceRating: number
+  valueRating: number
+  comment?: string
+}

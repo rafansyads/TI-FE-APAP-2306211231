@@ -5,6 +5,8 @@ import type { ApiEnvelope, Property, RoomType } from '@/types/models'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import MaintenanceModal from '@/components/MaintenanceModal.vue'
+import { hasRole } from '@/lib/rbac'
+import { getAccessToken } from '@/lib/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -22,6 +24,11 @@ const meta = ref<{
 } | null>(null)
 
 const filter = reactive({ checkIn: '', checkOut: '' })
+
+// RBAC helpers for UI
+const token = getAccessToken()
+const canManage = hasRole(['SUPERADMIN','ACCOMMODATION_OWNER','ROLE_SUPERADMIN','ROLE_ACCOMMODATION_OWNER'], token)
+const canBookAsCustomer = hasRole(['CUSTOMER','ROLE_CUSTOMER'], token)
 
 function roomsByType(rt: RoomType) {
   const all = rt.rooms || []
@@ -290,9 +297,9 @@ watch(() => ({ ...filter }), load)
           <h3 class="name">{{ property?.name }}</h3>
         </div>
         <div class="header__actions">
-          <RouterLink class="btn primary" :to="`/property/updateroom/${id}`">Add Room</RouterLink>
-          <RouterLink class="btn warn" :to="`/property/update/${id}`">Update Property</RouterLink>
-          <button class="btn danger" @click="showDelete = true">Delete Property</button>
+          <RouterLink v-if="canManage" class="btn primary" :to="`/property/updateroom/${id}`">Add Room</RouterLink>
+          <RouterLink v-if="canManage" class="btn warn" :to="`/property/update/${id}`">Update Property</RouterLink>
+          <button v-if="canManage" class="btn danger" @click="showDelete = true">Delete Property</button>
         </div>
       </div>
 
@@ -373,6 +380,7 @@ watch(() => ({ ...filter }), load)
                 <td class="right">
                   <div class="actions">
                     <RouterLink
+                      v-if="canBookAsCustomer"
                       :class="['btn','primary', !canBookRoom(r) ? 'disabled' : '']"
                       :aria-disabled="!canBookRoom(r)"
                       :tabindex="!canBookRoom(r) ? -1 : 0"
@@ -386,9 +394,9 @@ watch(() => ({ ...filter }), load)
                           roomTypePrice: rt.price,
                         },
                       }"
-                      >Book</RouterLink
-                    >
+                      >Book</RouterLink>
                     <button
+                      v-if="canManage"
                       class="btn warn"
                       :class="!canStartMaintenance(r) ? 'disabled' : ''"
                       :aria-disabled="!canStartMaintenance(r)"

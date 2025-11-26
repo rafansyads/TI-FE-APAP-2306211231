@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { reactive } from 'vue'
+import { hasRole } from '@/lib/rbac'
+import { getAccessToken } from '@/lib/auth'
 import { post } from '@/lib/api'
 import type { RoomType } from '@/types/models'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
@@ -22,6 +24,10 @@ const payload = reactive<{ idProperty: string; roomTypes: RoomType[]; propertyTy
   propertyType: 'Hotel',
   roomTypes: [{ name: '', facility: '', description: '', capacity: 0, price: 0, floor: 0, unit: 0 }]
 })
+
+// RBAC: only Superadmin or Accommodation Owner can add room types
+const token = getAccessToken()
+const canManageRoomTypes = hasRole(['SUPERADMIN','ACCOMMODATION_OWNER','ROLE_SUPERADMIN','ROLE_ACCOMMODATION_OWNER'], token)
 
 function add(){ payload.roomTypes.push({ name:'', facility:'', description:'', capacity:0, price:0, floor:0, unit:0 }) }
 function remove(i:number){ payload.roomTypes.splice(i,1) }
@@ -87,8 +93,9 @@ async function submit(){
 
     <div class="row">
       <RouterLink class="btn" :to="`/property/${idProperty}`">Back</RouterLink>
-      <AppButton variant="secondary" @click="add">+ Add Type</AppButton>
-      <AppButton variant="primary" @click="submit">Save</AppButton>
+      <AppButton v-if="canManageRoomTypes" variant="secondary" @click="add">+ Add Type</AppButton>
+      <AppButton v-if="canManageRoomTypes" variant="primary" @click="submit">Save</AppButton>
+      <div v-else class="muted" style="align-self:center">Only property owners and admins can create room types.</div>
     </div>
   </section>
 </template>

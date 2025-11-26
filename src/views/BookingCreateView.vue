@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { reactive, onMounted, ref, computed, watch } from 'vue'
+import { hasRole } from '@/lib/rbac'
+import { getAccessToken, parseJwt } from '@/lib/auth'
 import { post, get as httpGet } from '@/lib/api'
 import type { Booking, ApiEnvelope, CustomerSummary } from '@/types/models'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
@@ -42,6 +44,7 @@ const form = reactive<Booking>({
 const toast = useToastStore()
 const customers = ref<CustomerSummary[]>([])
 const selectedCustomerId = ref('')
+const prefilledCustomerLocked = ref(false)
 const loadingCustomers = ref(true)
 const customerIdError = ref('')
 const customerOptions = computed(() =>
@@ -51,7 +54,7 @@ const customerOptions = computed(() =>
   })),
 )
 
-onMounted(() => {
+onMounted(async () => {
   // Prefill from route query to avoid relying on a rooms endpoint during dev
   if (idRoom) {
     const q = route.query
@@ -63,15 +66,62 @@ onMounted(() => {
       roomTypePrice.value = Number.isFinite(n) ? n : 0
     }
   }
-  // Load customers for dropdown
-  httpGet<ApiEnvelope<CustomerSummary[]>>('/bookings/customers')
-    .then((res) => {
-      customers.value = res?.data ?? []
-    })
-    .catch(() => {})
-    .finally(() => {
-      loadingCustomers.value = false
-    })
+  // Load customers for dropdown from booking-derived summaries (phone included).
+  // We no longer call `/profile/customers` here — instead we will call `/profile/{identifier}`
+  // to prefill the current authenticated user's ID/name/email.
+  loadingCustomers.value = true
+  try {
+    const bookingsRes = await httpGet<ApiEnvelope<CustomerSummary[]>>('/bookings/customers').catch(() => ({ data: [] }))
+    const bookingCustomers = bookingsRes?.data ?? []
+    const phoneMap = new Map<string, string>((bookingCustomers || []).map((c: any) => [String(c.customerId), c.customerPhone || '']))
+    // Use booking-derived customers as the dropdown source
+    customers.value = (bookingCustomers || []).map((p: any) => ({
+      customerId: p.customerId ?? '',
+      customerName: p.customerName ?? '',
+      customerEmail: p.customerEmail ?? '',
+      customerPhone: phoneMap.get(String(p.customerId)) ?? '',
+    }))
+
+    // If authenticated, fetch canonical profile detail for current user and prefill ID/name/email
+    try {
+      const token = getAccessToken()
+      const payload: any = token ? parseJwt(token) : null
+      const identifier = payload?.sub || payload?.username || payload?.id || payload?.email
+      if (identifier) {
+        const profRes = await httpGet<ApiEnvelope<any>>(`/profile/${identifier}`).catch(() => null)
+        const prof = profRes?.data ?? null
+        if (prof && prof.id) {
+          prefilledCustomerLocked.value = true
+          form.customerId = prof.id
+          form.customerName = prof.name ?? ''
+          form.customerEmail = prof.email ?? ''
+          // keep phone editable; prefer phone from booking history if available
+          form.customerPhone = phoneMap.get(String(prof.id)) ?? ''
+          // Ensure the dropdown contains this profile so it can be selected.
+          const existsInBookings = (bookingCustomers || []).some((c: any) => String(c.customerId) === String(prof.id))
+          if (existsInBookings) {
+            selectedCustomerId.value = String(prof.id)
+          } else {
+            // Add profile as the first option so user sees their own entry
+            const entry = {
+              customerId: String(prof.id),
+              customerName: prof.name ?? '',
+              customerEmail: prof.email ?? '',
+              customerPhone: phoneMap.get(String(prof.id)) ?? '',
+            }
+            customers.value = [entry, ...(customers.value || [])]
+            selectedCustomerId.value = String(prof.id)
+          }
+        }
+      }
+    } catch (e) {
+      // ignore profile detail fetch errors
+    }
+  } catch (e) {
+    customers.value = []
+  } finally {
+    loadingCustomers.value = false
+  }
   // Load properties for no-room flow
   if (!idRoom) {
     httpGet<ApiEnvelope<Array<{ propertyId:string; propertyName:string }>>>('/property')
@@ -116,6 +166,10 @@ watch(selectedRoomId, ()=>{
   form.roomName = room?.name ?? ''
   form.propertyName = propertyDetail.value?.propertyName ?? ''
 })
+
+// RBAC: only customers can create bookings via this form
+const token = getAccessToken()
+const canCreateBooking = hasRole(['CUSTOMER','ROLE_CUSTOMER'], token)
 
 function daysBetween(a: string, b: string) {
   try {
@@ -301,16 +355,22 @@ function onCustomerIdInput() {
   <section>
     <h2>Add New Booking</h2>
     <form class="form" @submit.prevent="submit">
-      <div class="grid2" v-if="idRoom">
-        <label>Property Name<input v-model="form.propertyName as any" :disabled="true"/></label>
-        <label>Room Type<input v-model="form.roomType as any" :disabled="true" /></label>
-      </div>
-      <div class="grid2" v-if="idRoom">
-        <label>Room Name<input v-model="form.roomName as any" :disabled="true" /></label>
-        <label>Capacity<input type="number" v-model.number="form.capacity" min="1" /></label>
-      </div>
+      <div class="grid2" v-show="idRoom">
+            <label>Property Name
+              <div class="readonly">{{ form.propertyName }}</div>
+            </label>
+            <label>Room Type
+              <div class="readonly">{{ form.roomType }}</div>
+            </label>
+          </div>
+          <div class="grid2" v-show="idRoom">
+            <label>Room Name
+              <div class="readonly">{{ form.roomName }}</div>
+            </label>
+            <label>Capacity<input type="number" v-model.number="form.capacity" min="1" /></label>
+          </div>
 
-      <div v-else>
+      <div v-show="!idRoom">
         <div class="grid2">
           <label>Property
             <select v-model="(selectedPropertyId as any)">
@@ -344,9 +404,10 @@ function onCustomerIdInput() {
         <label>Check-out Date<input type="date" v-model="form.checkOut" required /></label>
       </div>
       <div class="grid2">
-        <label
-          >Customer (existing)
+        <label>Customer (existing)
+          <div class="readonly" v-show="prefilledCustomerLocked">{{ form.customerName }} ({{ form.customerId }})</div>
           <AppDropdown
+            v-show="!prefilledCustomerLocked"
             v-model="selectedCustomerId as any"
             :options="customerOptions"
             :loading="loadingCustomers"
@@ -357,18 +418,25 @@ function onCustomerIdInput() {
         <span></span>
       </div>
       <div class="grid2">
-        <label
-          >Customer ID
+        <label>Customer ID
+          <div class="readonly mono" v-show="prefilledCustomerLocked">{{ form.customerId }}</div>
           <AppTextField
+            v-show="!prefilledCustomerLocked"
             v-model="form.customerId as any"
             @input="onCustomerIdInput"
             :error="customerIdError"
           />
         </label>
-        <label>Customer Name<AppTextField v-model="form.customerName as any" /></label>
+        <label>Customer Name
+          <div class="readonly" v-show="prefilledCustomerLocked">{{ form.customerName }}</div>
+          <AppTextField v-show="!prefilledCustomerLocked" v-model="form.customerName as any" />
+        </label>
       </div>
       <div class="grid2">
-        <label>Customer Email<AppTextField v-model="form.customerEmail as any" /></label>
+        <label>Customer Email
+          <div class="readonly" v-show="prefilledCustomerLocked">{{ form.customerEmail }}</div>
+          <AppTextField v-show="!prefilledCustomerLocked" v-model="form.customerEmail as any" />
+        </label>
         <label
           >Customer Phone
           <AppTextField
@@ -387,7 +455,8 @@ function onCustomerIdInput() {
 
       <div class="row">
         <RouterLink class="btn" to="/bookings">Back</RouterLink>
-        <AppButton variant="primary" type="submit" :disabled="!idRoom && !selectedRoomId">Save</AppButton>
+        <AppButton v-if="canCreateBooking" variant="primary" type="submit" :disabled="!idRoom && !selectedRoomId">Save</AppButton>
+        <div v-else class="muted" style="align-self:center">Only customers can create bookings here.</div>
       </div>
     </form>
   </section>

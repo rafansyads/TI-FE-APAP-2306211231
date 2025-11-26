@@ -1,26 +1,22 @@
-<script lang="ts">
-import { defineComponent, type PropType } from 'vue'
+<script setup lang="ts">
+import { defineProps, defineEmits, type PropType } from 'vue'
 
-export default defineComponent({
-  name: 'AppDropdown',
-  props: {
-    modelValue: { type: null as unknown as PropType<string | number | null | undefined>, default: '' },
-    options: { type: Array as PropType<Array<{ label: string; value: string | number }>>, default: () => [] },
-    placeholder: { type: String, default: 'Select' },
-    disabled: { type: Boolean, default: false },
-    loading: { type: Boolean, default: false },
-  },
-  emits: ['update:modelValue','change'],
-  setup(props, { emit }){
-    function onChange(ev: Event){
-      const target = ev.target as HTMLSelectElement
-      const val = target.value === '' ? null : target.value
-      emit('update:modelValue', val)
-      emit('change', val)
-    }
-    return { props, onChange }
-  }
+const props = defineProps({
+  modelValue: { type: null as unknown as PropType<string | number | null | undefined>, default: '' },
+  options: { type: Array as PropType<Array<{ label: string; value: string | number }>>, default: () => [] },
+  placeholder: { type: String, default: 'Select' },
+  disabled: { type: Boolean, default: false },
+  loading: { type: Boolean, default: false },
 })
+
+const emit = defineEmits(['update:modelValue', 'change'])
+
+function onChange(ev: Event) {
+  const target = ev.target as HTMLSelectElement
+  const val = target.value === '' ? null : target.value
+  emit('update:modelValue', val)
+  emit('change', val)
+}
 </script>
 
 <template>

@@ -23,7 +23,7 @@ function openThis() {
 
 function openPlaceholder(name: string) {
   // const placeholder = `http://REPLACE_WITH_${name.toUpperCase()}_ROOT/sso/consume`
-  const placeholder = `http://localhost:5174/sso/consume` // dev placeholder
+  const placeholder = `http://localhost:5175/sso/consume` // dev placeholder
   // Attempt to forward via backend; if backend not configured for this target, show placeholder info
   forwardToExternal(placeholder, { source: 'accommodation-fe', returnTo: 'http://localhost:5174' })
     .catch(() => {
