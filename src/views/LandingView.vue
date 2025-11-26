@@ -13,6 +13,7 @@
 <script setup lang="ts">
 import { useToastStore } from '@/stores/toast'
 import router from '@/router'
+import { forwardToExternal } from '@/lib/forward'
 
 const toast = useToastStore()
 
@@ -21,9 +22,13 @@ function openThis() {
 }
 
 function openPlaceholder(name: string) {
-  const placeholder = `http://REPLACE_WITH_${name.toUpperCase()}_ROOT/`
-  // Do NOT navigate; notify developer where to change and leave placeholder
-  toast.showInfo(`Placeholder external service root: ${placeholder}. Update when integrating.` , 4000)
+  // const placeholder = `http://REPLACE_WITH_${name.toUpperCase()}_ROOT/sso/consume`
+  const placeholder = `http://localhost:5174/sso/consume` // dev placeholder
+  // Attempt to forward via backend; if backend not configured for this target, show placeholder info
+  forwardToExternal(placeholder, { source: 'accommodation-fe', returnTo: 'http://localhost:5174' })
+    .catch(() => {
+      toast.showInfo(`Placeholder external service root: ${placeholder}. Update when integrating.`, 4000)
+    })
 }
 </script>
 
