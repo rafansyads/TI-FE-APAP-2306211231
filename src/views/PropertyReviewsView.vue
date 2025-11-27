@@ -38,7 +38,9 @@ async function goToReview(id?: string) {
   } catch (e) {
     console.warn('Prefetch review failed', e)
   }
-  router.push({ name: 'review-detail', params: { id } })
+  // include where we came from so the detail view can navigate back with same query/page
+  const fromQuery = { ...(route.query || {}), page: page.value, pageSize: pageSize.value }
+  router.push({ name: 'review-detail', params: { id }, query: { fromName: String(route.name || ''), fromQuery: JSON.stringify(fromQuery) } })
 }
 
 onMounted(async () => {

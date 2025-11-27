@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref, computed } from 'vue'
 import { get as httpGet, put, post } from '@/lib/api'
-import type { Property, RoomType, ApiEnvelope, OwnerSummary } from '@/types/models'
+import type { Property, RoomType, ApiEnvelope } from '@/types/models'
 import { useRoute, useRouter } from 'vue-router'
 import AppDropdown from '@/components/ui/AppDropdown.vue'
 import AppTextField from '@/components/ui/AppTextField.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import { useToastStore } from '@/stores/toast'
+import { storeToRefs } from 'pinia'
+import { useAuthStore } from '@/stores/auth'
+import { hasRole } from '@/lib/rbac'
+import { getAccessToken } from '@/lib/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,11 +21,11 @@ const error = ref<string | null>(null)
 const loadingProvinces = ref(true)
 const provinces = ref<Array<{ code:number; name:string }>>([])
 const provincesMap = ref<Record<number,string>>({})
-const owners = ref<OwnerSummary[]>([])
+const owners = ref<Array<{ id: string; name: string }>>([])
 const selectedOwnerId = ref('')
-const loadingOwners = ref(true)
+const loadingOwners = ref(false)
 const ownerIdError = ref('')
-const ownerOptions = computed(() => owners.value.map(o => ({ label: `${o.ownerName} (${o.ownerId})`, value: o.ownerId })))
+const ownerOptions = computed(() => owners.value.map(o => ({ label: `${o.name} (${o.id})`, value: o.id })))
 const toast = useToastStore()
 
 const form = reactive<Property>({
@@ -110,16 +114,37 @@ async function loadProvinces(){
 }
 
 async function loadOwners(){
+  loadingOwners.value = true
   try{
-    const res = await httpGet<ApiEnvelope<OwnerSummary[]>>('/property/owners')
-    owners.value = res?.data ?? []
+    // Admin endpoint to list accommodation owners
+    const res = await httpGet<ApiEnvelope<any[]>>('/profile/users?role=ACCOMMODATION_OWNER')
+    const list = res?.data ?? []
+    owners.value = list.map(u => ({ id: u.id || u.userId || u.uuid, name: u.name || u.username }))
   }catch{ /* ignore */ }
   finally{ loadingOwners.value = false }
 }
 
 function onSelectOwner(){
-  const o = owners.value.find(o => o.ownerId === selectedOwnerId.value)
-  if(o){ form.ownerId = o.ownerId; form.ownerName = o.ownerName }
+  const o = owners.value.find(o => o.id === selectedOwnerId.value)
+  if(o){ form.ownerId = o.id; form.ownerName = o.name }
+}
+
+async function fetchOwnerByIdentifier(id: string){
+  if(!id) return
+  loadingOwners.value = true
+  try{
+    const res = await httpGet<ApiEnvelope<any>>(`/profile/${encodeURIComponent(id)}`)
+    const payload = res?.data
+    if(payload){
+      form.ownerId = payload.id || payload.userId || form.ownerId
+      form.ownerName = payload.name || payload.fullName || form.ownerName
+      ownerIdError.value = ''
+    }
+  }catch(e){
+    ownerIdError.value = 'Owner not found'
+  }finally{
+    loadingOwners.value = false
+  }
 }
 
 function isUuid(s: string){
@@ -194,7 +219,29 @@ async function submit(){
   }
 }
 
-onMounted(() => { load(); loadProvinces(); loadOwners() })
+// auth-aware initialization: prefill owner data if caller is owner; load owners if admin
+const auth = useAuthStore()
+const { claims } = storeToRefs(auth)
+const tokenRef = computed(() => getAccessToken())
+const isOwner = computed(() => hasRole(['ACCOMMODATION_OWNER','ROLE_ACCOMMODATION_OWNER'], tokenRef.value))
+const isAdmin = computed(() => hasRole(['SUPERADMIN','ROLE_SUPERADMIN'], tokenRef.value))
+
+onMounted(async () => {
+  load()
+  loadProvinces()
+  // If admin, load owner list
+  if (isAdmin.value) await loadOwners()
+  // If owner, try to prefill ownerId/name from profile claims
+  if (isOwner.value) {
+    try{
+      const c = (claims.value as any) || {}
+      const identifier = String(c.id ?? c.userId ?? c.username ?? c.sub ?? '')
+      if (identifier) await fetchOwnerByIdentifier(identifier)
+    }catch{}
+  }
+  // set selectedOwnerId to the loaded ownerId so dropdown reflects current owner when admin
+  selectedOwnerId.value = String(form.ownerId || '')
+})
 </script>
 
 <template>
@@ -228,15 +275,15 @@ onMounted(() => { load(); loadProvinces(); loadOwners() })
         <label>Description<textarea v-model="form.description" rows="2" /></label>
         <div class="grid2">
           <label>Owner (existing)
-            <AppDropdown v-model="(selectedOwnerId as any)" :options="ownerOptions" :loading="loadingOwners" placeholder="Select Owner" @change="onSelectOwner" />
+            <AppDropdown :disabled="true" v-model="(selectedOwnerId as any)" :options="ownerOptions" :loading="loadingOwners" placeholder="Select Owner" @change="onSelectOwner" />
           </label>
           <span></span>
         </div>
         <div class="grid2">
           <label>Owner ID (UUID)
-            <AppTextField v-model="(form.ownerId as any)" @input="onOwnerIdInput" :error="ownerIdError" />
+            <AppTextField v-model="(form.ownerId as any)" @input="onOwnerIdInput" :error="ownerIdError" :disabled="true" />
           </label>
-          <label>Owner Name<AppTextField v-model="(form.ownerName as any)" /></label>
+          <label>Owner Name<AppTextField v-model="(form.ownerName as any)" :disabled="true" /></label>
         </div>
 
         <h3>Room Types</h3>

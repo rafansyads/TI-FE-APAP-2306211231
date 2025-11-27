@@ -28,7 +28,9 @@ function onInput(ev: Event) {
 </template>
 
 <style scoped>
-.tf-input{ width:100%; padding:.5rem; border:1px solid var(--color-border); border-radius:6px }
+.tf-input{ width:100%; padding:.5rem; border:1px solid var(--color-border); border-radius:6px; color:var(--vt-c-text); background:var(--vt-c-surface); transition:background .15s ease, color .15s ease }
+.tf-input::placeholder{ color:var(--vt-c-text-2) }
+.tf-input:disabled{ color: rgba(0,0,0,0.85); background: #f5f7fa; border-color: #d6dbe0; opacity:1 }
 .tf-help{ color: var(--vt-c-text-2) }
 .tf-error{ color:#b30000 }
 </style>

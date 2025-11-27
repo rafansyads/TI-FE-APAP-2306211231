@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref, computed } from 'vue'
 import { post, get as httpGet } from '@/lib/api'
-import type { Property, RoomType, ApiEnvelope, OwnerSummary } from '@/types/models'
+import type { Property, RoomType, ApiEnvelope } from '@/types/models'
 import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
+import { useAuthStore } from '@/stores/auth'
+import { getRolesFromToken, hasRole } from '@/lib/rbac'
+import { getAccessToken } from '@/lib/auth'
 import AppDropdown from '@/components/ui/AppDropdown.vue'
 import AppTextField from '@/components/ui/AppTextField.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -14,11 +18,13 @@ const provinces = ref<Array<{ code: number; name: string }>>([])
 const provincesMap = ref<Record<number,string>>({})
 const loadingProvinces = ref(true)
 const toast = useToastStore()
-const owners = ref<OwnerSummary[]>([])
-const selectedOwnerId = ref('')
-const loadingOwners = ref(true)
+const loadingOwners = ref(false)
 const ownerIdError = ref('')
-const ownerOptions = computed(() => owners.value.map(o => ({ label: `${o.ownerName} (${o.ownerId})`, value: o.ownerId })))
+// user can type an owner identifier (username or email) and lookup the owner
+const selectedOwnerIdentifier = ref('')
+// Admin-only owners list
+const owners = ref<Array<{ id: string; name: string }>>([])
+const selectedOwnerId = ref('')
 
 const typeToRoomTypeNames: Record<string, string[]> = {
   Hotel: ['Single Room','Double Room','Deluxe Room','Superior Room','Suite','Family Room'],
@@ -53,18 +59,39 @@ async function loadProvinces(){
   } finally { loadingProvinces.value = false }
 }
 
-async function loadOwners(){
+async function fetchOwnerByIdentifier(){
+  const id = String(selectedOwnerIdentifier.value || '').trim()
+  if(!id) return
+  loadingOwners.value = true
   try{
-    const res = await httpGet<ApiEnvelope<OwnerSummary[]>>('/property/owners')
-    owners.value = res?.data ?? []
-  }catch{ /* ignore */ }
-  finally { loadingOwners.value = false }
+    // endpoint: GET /profile/{identifier}
+    const res = await httpGet<ApiEnvelope<any>>(`/profile/${encodeURIComponent(id)}`)
+    const payload = res?.data
+    if(payload){
+      form.ownerId = payload.id || payload.userId || form.ownerId
+      form.ownerName = payload.name || payload.fullName || form.ownerName
+      ownerIdError.value = ''
+    }
+  }catch(e){
+    ownerIdError.value = 'Owner not found'
+  }finally{
+    loadingOwners.value = false
+  }
 }
 
-function onSelectOwner(){
-  const o = owners.value.find(o => o.ownerId === selectedOwnerId.value)
-  if(o){ form.ownerId = o.ownerId; form.ownerName = o.ownerName }
+async function fetchOwnersForAdmin(){
+  loadingOwners.value = true
+  try{
+    const res = await httpGet<ApiEnvelope<any[]>>('/profile/users?role=ACCOMMODATION_OWNER')
+    const list = res?.data ?? []
+    owners.value = list.map(u => ({ id: u.id || u.userId || u.uuid, name: u.name || u.username }))
+  }catch(e){
+    // ignore
+  }finally{
+    loadingOwners.value = false
+  }
 }
+
 
 function isUuid(s: string){
   return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test((s||'').trim())
@@ -76,10 +103,12 @@ function onOwnerIdInput(){
 
 async function submit(){
   try{
-    // Generate owner UUID if not provided
-    const selected = (selectedOwnerId.value || '').trim()
+    // Ensure ownerId is set: admin may select via dropdown, owner is prefilled; otherwise generate
     const hasManualId = String(form.ownerId || '').trim().length > 0
-    if(!selected && !hasManualId){
+    if(!hasManualId && selectedOwnerId.value){
+      form.ownerId = selectedOwnerId.value
+    }
+    if(!form.ownerId || String(form.ownerId).trim().length === 0){
       const hasRandomUUID = typeof globalThis !== 'undefined' && !!(globalThis as unknown as { crypto?: { randomUUID?: () => string } }).crypto?.randomUUID
       const gen: string = hasRandomUUID
         ? (globalThis as unknown as { crypto: { randomUUID: () => string } }).crypto.randomUUID()
@@ -124,7 +153,38 @@ async function submit(){
   }
 }
 
-onMounted(() => { loadProvinces(); loadOwners() })
+// Auth-aware initialization
+const auth = useAuthStore()
+const { claims } = storeToRefs(auth)
+const tokenRef = computed(() => getAccessToken())
+const isOwner = computed(() => hasRole(['ACCOMMODATION_OWNER','ROLE_ACCOMMODATION_OWNER'], tokenRef.value))
+const isAdmin = computed(() => hasRole(['SUPERADMIN','ROLE_SUPERADMIN'], tokenRef.value))
+
+onMounted(async () => {
+  loadProvinces()
+  // fetch owners list if admin
+  if (isAdmin.value) {
+    await fetchOwnersForAdmin()
+  }
+  // if logged in as owner, prefill ownerId/name and disable editing
+  if (isOwner.value) {
+    try {
+      // Prefer claims.id or username as identifier to fetch profile
+      const c = (claims.value as any) || {}
+      const identifier = String(c.id ?? c.userId ?? c.username ?? c.sub ?? '')
+      if (identifier) {
+        const res = await httpGet<ApiEnvelope<any>>(`/profile/${encodeURIComponent(identifier)}`)
+        const payload = res?.data
+        if (payload) {
+          form.ownerId = payload.id || payload.userId || form.ownerId
+          form.ownerName = payload.name || payload.fullName || form.ownerName
+        }
+      }
+    } catch (e) {
+      // ignore; owner fields remain editable as fallback
+    }
+  }
+})
 </script>
 
 <template>
@@ -153,16 +213,26 @@ onMounted(() => { loadProvinces(); loadOwners() })
       <label>Address<textarea v-model="form.address" rows="2" /></label>
       <label>Description<textarea v-model="form.description" rows="2" /></label>
       <div class="grid2">
-        <label>Owner (existing)
-          <AppDropdown v-model="(selectedOwnerId as any)" :options="ownerOptions" :loading="loadingOwners" placeholder="Select Owner" @change="onSelectOwner" />
+        <label>Owner
+          <div v-if="isOwner" style="display:flex; gap:.5rem">
+            <AppTextField v-model="(form.ownerId as any)" disabled />
+            <AppTextField v-model="(form.ownerName as any)" disabled />
+          </div>
+          <div v-else-if="isAdmin" style="display:flex; gap:.5rem">
+            <AppDropdown v-model="(selectedOwnerId as any)" :options="owners.map(o=>({label:o.name, value:o.id}))" :loading="loadingOwners" placeholder="Select Owner" @change="onSelectOwner" />
+          </div>
+          <div v-else style="display:flex; gap:.5rem">
+            <AppTextField v-model="(selectedOwnerIdentifier as any)" placeholder="username or email" />
+            <AppButton variant="secondary" @click="fetchOwnerByIdentifier" :disabled="loadingOwners">Lookup</AppButton>
+          </div>
         </label>
         <span></span>
       </div>
       <div class="grid2">
         <label>Owner ID (UUID)
-          <AppTextField v-model="(form.ownerId as any)" @input="onOwnerIdInput" :error="ownerIdError" />
+          <AppTextField v-model="(form.ownerId as any)" @input="onOwnerIdInput" :error="ownerIdError" disabled />
         </label>
-        <label>Owner Name<AppTextField v-model="(form.ownerName as any)" /></label>
+        <label>Owner Name<AppTextField v-model="(form.ownerName as any)" disabled /></label>
       </div>
 
       <h3>Room Types</h3>

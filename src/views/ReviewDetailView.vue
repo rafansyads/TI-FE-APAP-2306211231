@@ -2,13 +2,32 @@
 import { ref, onMounted } from 'vue'
 import { get } from '@/lib/api'
 import type { AccommodationReview, ApiEnvelope } from '@/types/models'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import AppButton from '@/components/ui/AppButton.vue'
+import { getPropertyName } from '@/lib/cache'
 
 const route = useRoute()
 const id = String(route.params.id || '')
 const review = ref<AccommodationReview | null>(null)
+const propertyName = ref<string | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
+const router = useRouter()
+
+function goBack() {
+  try {
+    const fromName = String(route.query?.fromName || '')
+    const fromQueryRaw = String(route.query?.fromQuery || '')
+    if (fromName && fromQueryRaw) {
+      const q = JSON.parse(fromQueryRaw || '{}')
+      router.push({ name: fromName as any, query: q })
+      return
+    }
+  } catch (e) {
+    // fallthrough to history back
+  }
+  router.back()
+}
 
 function fmtDate(s?: string | null) {
   if (!s) return '-'
@@ -35,6 +54,8 @@ onMounted(async () => {
         comment: raw.comment,
         createdAt: raw.createdDate ?? raw.createdAt,
       } as AccommodationReview
+      // fetch property name via cache helper
+      propertyName.value = await getPropertyName(review.value.propertyId)
     } else {
       review.value = null
     }
@@ -52,12 +73,16 @@ onMounted(async () => {
       <div v-if="loading" class="loading">Loading…</div>
 
       <div v-else>
+        <div class="actions">
+          <AppButton variant="link" size="sm" @click="goBack">← Back</AppButton>
+        </div>
+
         <div v-if="error" class="error">{{ error }}</div>
 
         <div v-else-if="review" class="content">
           <div class="details-grid">
             <div class="label">Property</div>
-            <div class="value">{{ review.propertyId || '-' }}</div>
+            <div class="value">{{ propertyName || review.propertyId || '-' }}</div>
 
             <div class="label">By</div>
             <div class="value">{{ review.customerName || '-' }}</div>

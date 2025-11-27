@@ -5,7 +5,7 @@ import type { AccommodationReview, ApiEnvelope } from '@/types/models'
 import { useAuthStore } from '@/stores/auth'
 import { storeToRefs } from 'pinia'
 import { parseJwt, getAccessToken } from '@/lib/auth'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRouter, useRoute } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDropdown from '@/components/ui/AppDropdown.vue'
 import { hasRole } from '@/lib/rbac'
@@ -45,7 +45,10 @@ async function goToReview(id?: string) {
     // ignore fetch error, still navigate so the detail view can show error if needed
     console.warn('Prefetch review failed', e)
   }
-  router.push({ name: 'review-detail', params: { id } })
+  // include where we came from so the detail view can navigate back with same query/page
+  const route = useRoute()
+  const fromQuery = { ...(route.query || {}), page: page.value, pageSize: pageSize.value }
+  router.push({ name: 'review-detail', params: { id }, query: { fromName: String(route.name || ''), fromQuery: JSON.stringify(fromQuery) } })
 }
 
 function extractCustomerId(): string | undefined {

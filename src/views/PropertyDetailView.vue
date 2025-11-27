@@ -5,6 +5,7 @@ import type { ApiEnvelope, Property, RoomType } from '@/types/models'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import MaintenanceModal from '@/components/MaintenanceModal.vue'
+import AppButton from '@/components/ui/AppButton.vue'
 import { hasRole } from '@/lib/rbac'
 import { getAccessToken } from '@/lib/auth'
 
@@ -279,6 +280,16 @@ async function addMaintenance() {
 
 onMounted(load)
 watch(() => ({ ...filter }), load)
+
+function goToRoomType(roomTypeId: string) {
+  if (!roomTypeId) return
+  // include propertyId in the query so the room-type detail view can call the new API path
+  router.push({
+    name: 'property-roomtype-detail',
+    params: { id: roomTypeId },
+    query: { propertyId: id, checkIn: filter.checkIn, checkOut: filter.checkOut },
+  })
+}
 </script>
 
 <template>
@@ -352,12 +363,22 @@ watch(() => ({ ...filter }), load)
         </div>
 
         <div v-for="rt in property.roomTypes" :key="rt.id" class="rt-card">
-          <div class="rt-head">
-            <div>
-              <div class="rt-name">{{ rt.name }}</div>
-              <div class="rt-sub">Capacity {{ rt.capacity }} • Price {{ rt.price }}</div>
+            <div class="rt-head">
+              <div>
+                <div class="rt-name">{{ rt.name }}</div>
+                <div class="rt-sub">Capacity {{ rt.capacity }} • Price {{ rt.price }}</div>
+              </div>
+              <div>
+                <AppButton
+                  v-if="(canManage || canBookAsCustomer) && rt.id"
+                  variant="primary"
+                  size="sm"
+                  @click="goToRoomType(rt.id)"
+                >
+                  View Type
+                </AppButton>
+              </div>
             </div>
-          </div>
           <table class="rooms-table">
             <thead>
               <tr>

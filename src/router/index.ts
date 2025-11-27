@@ -23,6 +23,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/property/:id', name: 'property-detail', component: () => import('../views/PropertyDetailView.vue'), props: true, meta: { roles: ['SUPERADMIN','ACCOMMODATION_OWNER','CUSTOMER','ROLE_SUPERADMIN','ROLE_ACCOMMODATION_OWNER','ROLE_CUSTOMER'] } },
   // Create/Update room type per property
   { path: '/property/updateroom/:idProperty', name: 'property-updateroom', component: () => import('../views/PropertyUpdateRoomTypeView.vue'), props: true, meta: { roles: ['SUPERADMIN','ACCOMMODATION_OWNER','ROLE_SUPERADMIN','ROLE_ACCOMMODATION_OWNER'] } },
+  { path: '/property/roomtype/:id', name: 'property-roomtype-detail', component: () => import('../views/PropertyRoomTypeDetail.vue'), props: true, meta: { roles: ['SUPERADMIN','ACCOMMODATION_OWNER','CUSTOMER','ROLE_SUPERADMIN','ROLE_ACCOMMODATION_OWNER','ROLE_CUSTOMER'] } },
 
   // Bookings
   { path: '/bookings', name: 'booking-list', component: () => import('../views/BookingListView.vue'), meta: { roles: ['SUPERADMIN','ACCOMMODATION_OWNER','CUSTOMER','ROLE_SUPERADMIN','ROLE_ACCOMMODATION_OWNER','ROLE_CUSTOMER'] } },
