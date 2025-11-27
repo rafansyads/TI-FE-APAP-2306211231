@@ -49,7 +49,7 @@ const routes: RouteRecordRaw[] = [
       'INSURANCE_PROVIDER','ROLE_INSURANCE_PROVIDER',
       'TOUR_PACKAGE_VENDOR','ROLE_TOUR_PACKAGE_VENDOR'
     ] } },
-  { path: '/profile/:id', name: 'profile-detail', component: () => import('../views/EndUserDetailView.vue'), props: true, meta: { roles: ['SUPERADMIN','ROLE_SUPERADMIN','ALL'] } },
+  { path: '/profile/:id', name: 'profile-detail', component: () => import('../views/EndUserDetailView.vue'), props: true },
 ]
 
 const router = createRouter({
