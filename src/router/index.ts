@@ -39,6 +39,17 @@ const routes: RouteRecordRaw[] = [
   { path: '/bookings/reviews', name: 'customer-reviews', component: () => import('../views/CustomerReviewsView.vue'), meta: { roles: ['CUSTOMER','ROLE_CUSTOMER'] } },
   { path: '/reviews/create', name: 'review-create', component: () => import('../views/ReviewCreateView.vue'), meta: { roles: ['CUSTOMER','ROLE_CUSTOMER'] } },
   { path: '/reviews/:id', name: 'review-detail', component: () => import('../views/ReviewDetailView.vue'), props: true, meta: { roles: ['SUPERADMIN','ACCOMMODATION_OWNER','CUSTOMER','ROLE_SUPERADMIN','ROLE_ACCOMMODATION_OWNER','ROLE_CUSTOMER'] } },
+  // Users / Profile
+  { path: '/profile/users', name: 'profile-users', component: () => import('../views/EndUserListView.vue'), meta: { roles: ['SUPERADMIN','ROLE_SUPERADMIN'] } },
+  { path: '/profile/customers', name: 'profile-customers', component: () => import('../views/CustomerListView.vue'), meta: { roles: [
+      'SUPERADMIN','ROLE_SUPERADMIN',
+      'ACCOMMODATION_OWNER','ROLE_ACCOMMODATION_OWNER',
+      'RENTAL_VENDOR','ROLE_RENTAL_VENDOR',
+      'FLIGHT_AIRLINE','ROLE_FLIGHT_AIRLINE',
+      'INSURANCE_PROVIDER','ROLE_INSURANCE_PROVIDER',
+      'TOUR_PACKAGE_VENDOR','ROLE_TOUR_PACKAGE_VENDOR'
+    ] } },
+  { path: '/profile/:id', name: 'profile-detail', component: () => import('../views/EndUserDetailView.vue'), props: true, meta: { roles: ['SUPERADMIN','ROLE_SUPERADMIN','ALL'] } },
 ]
 
 const router = createRouter({

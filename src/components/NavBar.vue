@@ -5,6 +5,7 @@
       <nav class="links">
         <RouterLink to="/landing">Services</RouterLink>
         <RouterLink to="/">Home</RouterLink>
+        <RouterLink v-if="customerId" :to="`/profile/${customerId}`">Profile</RouterLink>
         <RouterLink to="/property">Property</RouterLink>
         <RouterLink to="/bookings">Bookings</RouterLink>
         <RouterLink v-if="isCustomer" :to="{ path: '/bookings/reviews', query: customerId ? { customerID: customerId } : {} }">Reviews</RouterLink>

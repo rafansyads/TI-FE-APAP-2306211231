@@ -6,6 +6,15 @@
       <div class="card big" @click="openPlaceholder('Payments')">Payments<br/>(placeholder)</div>
       <div class="card big" @click="openPlaceholder('CRM')">CRM<br/>(placeholder)</div>
       <div class="card big" @click="openPlaceholder('Analytics')">Analytics<br/>(placeholder)</div>
+      <div v-if="!isCustomer" class="card big admin-card">
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.6rem">
+          <div style="font-weight:600">Admin - Users</div>
+          <div style="display:flex;gap:.5rem">
+            <button class="btn" @click="goToCustomers">Customers</button>
+            <button v-if="isSuperadmin" class="btn" @click="goToUsers">Users</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -30,6 +39,18 @@ function openPlaceholder(name: string) {
       toast.showInfo(`Placeholder external service root: ${placeholder}. Update when integrating.`, 4000)
     })
 }
+import { getAccessToken } from '@/lib/auth'
+import { getRolesFromToken } from '@/lib/rbac'
+import AppButton from '@/components/ui/AppButton.vue'
+
+// role helpers for conditional admin card
+const token = getAccessToken()
+const roles = getRolesFromToken(token).map(r => String(r).toUpperCase())
+const isCustomer = roles.includes('CUSTOMER') || roles.includes('ROLE_CUSTOMER')
+const isSuperadmin = roles.includes('SUPERADMIN') || roles.includes('ROLE_SUPERADMIN')
+
+function goToCustomers(){ router.push({ path: '/profile/customers' }) }
+function goToUsers(){ router.push({ path: '/profile/users' }) }
 </script>
 
 <style scoped>
@@ -70,3 +91,4 @@ function openPlaceholder(name: string) {
   transform: translateY(-2px);
 }
 </style>
+
