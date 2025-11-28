@@ -309,16 +309,15 @@ watch(
         </div>
       </div>
     </div>
+    <MaintenanceModal
+      :open="maintenance.open"
+      :start="maintenance.start"
+      :end="maintenance.end"
+      @close="maintenance.open = false"
+      @save="({ start, end }) => { maintenance.start = start; maintenance.end = end; addMaintenance() }"
+    />
   </section>
 </template>
-
-<MaintenanceModal
-  :open="maintenance.open"
-  :start="maintenance.start"
-  :end="maintenance.end"
-  @close="maintenance.open = false"
-  @save="({ start, end }) => { maintenance.start = start; maintenance.end = end; addMaintenance() }"
-/>
 
 <style scoped>
 .card { background: var(--color-background); border: 1px solid var(--color-border); border-radius: 10px; padding: 1rem 1rem 1.25rem; }

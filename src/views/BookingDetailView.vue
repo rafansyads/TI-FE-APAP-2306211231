@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
 import { hasRole } from '@/lib/rbac'
-import { getAccessToken } from '@/lib/auth'
+import { getAccessToken, parseJwt } from '@/lib/auth'
 import { get as httpGet, post } from '@/lib/api'
 import type { Booking, ApiEnvelope } from '@/types/models'
 import { useRoute, RouterLink } from 'vue-router'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import SaldoModal from '@/components/SaldoModal.vue'
 
 const route = useRoute()
 const id = route.params.id as string
@@ -72,21 +73,28 @@ async function act(){
   if(type==='refund') await post('/bookings/status/refund', { data: { bookingId: id } })
   close();
   await load();
+  // After the status change, show updated customer saldo (if we have a customer id)
+  if(booking.value && booking.value.customerId){
+    saldoModal.value.identifier = booking.value.customerId
+    saldoModal.value.userId = booking.value.customerId
+    saldoModal.value.username = booking.value.customerName ?? ''
+    saldoModal.value.open = true
+  }
 }
 
 // Derived button visibility from status (0..4)
 const canCancel = computed(() => {
   const s = booking.value?.status ?? 0
-  return s !== 2 && s !== 4
+  return (s !== 2 && s !== 4) && isBookingOwner.value
 })
-const canRefund = computed(() => (booking.value?.status ?? -1) === 3)
-const canPay = computed(() => (booking.value?.status ?? -1) === 0)
+const canRefund = computed(() => ((booking.value?.status ?? -1) === 3) && isBookingOwner.value)
+const canPay = computed(() => ((booking.value?.status ?? -1) === 0) && isBookingOwner.value)
 const canUpdate = computed(() => {
   const s = booking.value?.status ?? 0
   const extra = booking.value?.extraPay ?? 0
   const refund = booking.value?.refund ?? 0
   // Update is only allowed on status 0 or 1 when there is no pending extra/refund
-  return (s === 0 || s === 1) && extra === 0 && refund === 0
+  return (s === 0 || s === 1) && extra === 0 && refund === 0 && isBookingOwner.value
 })
 const onlyBack = computed(() => {
   const s = booking.value?.status ?? 0
@@ -95,9 +103,35 @@ const onlyBack = computed(() => {
 
 onMounted(load)
 
-// RBAC: allowed roles to view/act on booking details
+// RBAC: determine current user and whether they own the booking
 const token = getAccessToken()
+function getCurrentUserIdentifier(){
+  const t = getAccessToken()
+  if(!t) return null
+  try{ const claims = parseJwt(t) as Record<string, unknown>
+    const keys = ['userId','id','sub','username','email','preferred_username']
+    for(const k of keys){ const v = claims[k]; if(v) return String(v) }
+  }catch(e){ /* ignore */ }
+  return null
+}
+
+const currentUserId = getCurrentUserIdentifier()
+
+const isBookingOwner = computed(()=>{
+  if(!booking.value) return false
+  if(!currentUserId) return false
+  const b = booking.value
+  // compare against several booking fields we know may identify the customer
+  return String(currentUserId) === String(b.customerId)
+    || String(currentUserId) === String(b.customerEmail)
+    || String(currentUserId) === String(b.customerName)
+})
+
+// Keep legacy role check if needed elsewhere, but action buttons must be owner-only
 const canActOnBooking = hasRole(['SUPERADMIN','ACCOMMODATION_OWNER','CUSTOMER','ROLE_SUPERADMIN','ROLE_ACCOMMODATION_OWNER','ROLE_CUSTOMER'], token)
+
+// local state for saldo modal
+const saldoModal = ref<{ open: boolean, identifier: string, userId?: string, username?: string }>({ open:false, identifier: '', userId:'', username:'' })
 </script>
 
 <template>
@@ -137,10 +171,10 @@ const canActOnBooking = hasRole(['SUPERADMIN','ACCOMMODATION_OWNER','CUSTOMER','
           <div class="spacer"></div>
           <template v-if="onlyBack"></template>
           <template v-else>
-            <button v-if="canActOnBooking && canPay" class="btn success" @click="openModal('pay')">Pay</button>
-            <RouterLink v-if="canActOnBooking && canUpdate" class="btn" :to="`/bookings/update/${id}`">Update</RouterLink>
-            <button v-if="canActOnBooking && canRefund" class="btn warn" @click="openModal('refund', booking?.refund || 0)">Refund</button>
-            <button v-if="canActOnBooking && canCancel" class="btn danger" @click="openModal('cancel')">Cancel</button>
+            <button v-if="isBookingOwner && canPay" class="btn success" @click="openModal('pay')">Pay</button>
+            <RouterLink v-if="isBookingOwner && canUpdate" class="btn" :to="`/bookings/update/${id}`">Update</RouterLink>
+            <button v-if="isBookingOwner && canRefund" class="btn warn" @click="openModal('refund', booking?.refund || 0)">Refund</button>
+            <button v-if="isBookingOwner && canCancel" class="btn danger" @click="openModal('cancel')">Cancel</button>
             <RouterLink v-if="booking && booking.status===4 && hasRole(['CUSTOMER','ROLE_CUSTOMER'], getAccessToken())" class="btn" :to="{ name: 'review-create', query: { bookingId: booking.id } }">Write Review</RouterLink>
           </template>
         </div>
@@ -150,6 +184,13 @@ const canActOnBooking = hasRole(['SUPERADMIN','ACCOMMODATION_OWNER','CUSTOMER','
       :open="modals.open && modals.type!=='refund'"
       :title="modals.type==='pay' ? 'Confirm Payment?' : 'Cancel Booking?'"
       @close="close" @confirm="act"
+    />
+    <SaldoModal
+      :open="saldoModal.open"
+      :identifier="saldoModal.identifier"
+      :userId="saldoModal.userId"
+      :username="saldoModal.username"
+      @close="saldoModal.open=false"
     />
     <div v-if="modals.open && modals.type==='refund'" class="modal">
       <div class="panel">
