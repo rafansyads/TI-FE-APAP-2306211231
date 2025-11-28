@@ -42,19 +42,26 @@ function fmtCurrency(v: number | undefined) {
 function getStatusLabel(r: any) {
   // interpret common fields and seeded payload: availabilityStatus (1 = available), activeRoom (0 = maintenance)
   if (r == null) return 'Unknown'
-  if (typeof r.activeRoom === 'number' && r.activeRoom === 0) return 'Unavailable'
+  // Note: do not consider `activeRoom` in UI filtering decisions; backend availabilityStatus
+  // and maintenance windows determine availability for booking/maintenance actions.
   if (typeof r.availabilityStatus === 'number') {
-    // if available but maintenance overlaps requested filter, show Not available
+    // If backend-marked unavailable, respect it.
+    if (r.availabilityStatus === 0) return 'Unavailable'
+    // availabilityStatus === 1 => still consider maintenance overlap for customer-facing label
     if (r.availabilityStatus === 1 && filter.checkIn && filter.checkOut) {
-      const start = composeDateTime(filter.checkIn, 14, 0)
-      const end = composeDateTime(filter.checkOut, 12, 0)
-      const mStart = parseISODateTime(r.maintenanceStart)
-      const mEnd = parseISODateTime(r.maintenanceEnd)
-      if (start && end && mStart && mEnd && intervalsOverlap(start, end, mStart, mEnd)) {
-        return 'Not available'
+      // For customers, maintenance overlapping should render room as unavailable.
+      // For managers (owners/superadmin), prefer to show available so they can perform maintenance actions.
+      if (!canManage) {
+        const start = composeDateTime(filter.checkIn, 14, 0)
+        const end = composeDateTime(filter.checkOut, 12, 0)
+        const mStart = parseISODateTime(r.maintenanceStart)
+        const mEnd = parseISODateTime(r.maintenanceEnd)
+        if (start && end && mStart && mEnd && intervalsOverlap(start, end, mStart, mEnd)) {
+          return 'Unavailable'
+        }
       }
     }
-    return r.availabilityStatus === 1 ? 'Available' : 'Unavailable'
+    return 'Available'
   }
   const s = (r.status ?? r.roomStatus ?? '').toString()
   if (s === 'available' || s === 'AVAILABLE' || s === '1') return 'Available'
@@ -95,16 +102,23 @@ function canBookRoom(room: any){
   // - If no filter dates provided, allow booking (UI will still show availability badge).
   // - If filter dates provided:
   //    * block when maintenance overlaps the requested range
+  //    * block when backend-marked availabilityStatus === 0
   //    * otherwise require the room to be available (when the backend exposes a status/availability flag)
   if(!filter.checkIn || !filter.checkOut) return true
   const start = composeDateTime(filter.checkIn, 14, 0)
   const end = composeDateTime(filter.checkOut, 12, 0)
   if(!start || !end) return true
 
+  // If backend explicitly marked the room unavailable for the requested range, respect that first.
+  if (typeof room.availabilityStatus === 'number' && room.availabilityStatus === 0) return false
+
   // Maintenance collision check
   const mStart = parseISODateTime(room.maintenanceStart)
   const mEnd = parseISODateTime(room.maintenanceEnd)
   if(mStart && mEnd && intervalsOverlap(start, end, mStart, mEnd)) return false
+
+  // If backend exposes availability flag and it's present, use it.
+  if (typeof room.availabilityStatus === 'number') return room.availabilityStatus === 1
 
   // If a normalized `status` exists, require it to be 'available'
   if (room.status) {
@@ -114,34 +128,22 @@ function canBookRoom(room: any){
   }
 
   // Fallback to common numeric flags from backend
-  if (typeof room.availabilityStatus === 'number') return room.availabilityStatus === 1
-  if (typeof room.activeRoom === 'number') return room.activeRoom !== 0
+  // Do not use `activeRoom` flag for booking decisions; ignore it here.
 
   // Default to allow so UI doesn't hide rooms when shape is unknown
   return true
 }
 
 function canStartMaintenance(room: any){
-  // Match `PropertyDetailView` rules:
-  // - Do not allow starting maintenance when room is not available
-  // - If filter dates provided, block when maintenance overlaps the selected range
-  // Determine availability from normalized fields when possible
+  // Maintenance action is controlled by availability (blocking bookings). For owners/superadmin
+  // we only consider the backend-provided `availabilityStatus` when present.
+  if (typeof room.availabilityStatus === 'number') return room.availabilityStatus === 1
+
   if (room.status) {
     const s = String(room.status).toLowerCase()
-    if (s !== 'available') return false
-  } else if (typeof room.availabilityStatus === 'number') {
-    if (room.availabilityStatus !== 1) return false
-  } else if (typeof room.activeRoom === 'number') {
-    if (room.activeRoom === 0) return false
+    return s === 'available'
   }
-
-  if(!filter.checkIn || !filter.checkOut) return true
-  const start = composeDateTime(filter.checkIn, 14, 0)
-  const end = composeDateTime(filter.checkOut, 12, 0)
-  if(!start || !end) return true
-  const mStart = parseISODateTime(room.maintenanceStart)
-  const mEnd = parseISODateTime(room.maintenanceEnd)
-  if(mStart && mEnd && intervalsOverlap(start, end, mStart, mEnd)) return false
+  // Do not use `activeRoom` flag for maintenance-action decisions; ignore it here.
   return true
 }
 

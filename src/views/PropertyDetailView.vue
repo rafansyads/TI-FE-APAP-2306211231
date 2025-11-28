@@ -67,26 +67,31 @@ function canBookRoom(room: { status: 'available'|'booked'|'maintenance'; mainten
   const start = composeDateTime(filter.checkIn, 14, 0)
   const end = composeDateTime(filter.checkOut, 12, 0)
   if(!start || !end) return true
+
+  // If backend explicitly marked the room unavailable for the requested range, respect that first.
+  if (typeof (room as any).availabilityStatus === 'number' && (room as any).availabilityStatus === 0) return false
+
   // Maintenance collision check
   const mStart = parseISODateTime(room.maintenanceStart)
   const mEnd = parseISODateTime(room.maintenanceEnd)
   if(mStart && mEnd && intervalsOverlap(start, end, mStart, mEnd)) return false
+
+  // If backend exposes availability flag and it's present, use it.
+  if (typeof (room as any).availabilityStatus === 'number') return (room as any).availabilityStatus === 1
+
   // Booking collision check: since backend now filters rooms list by availability for given dates,
   // we still include all rooms but will disable the button when status != 'available'.
-  return room.status === 'available'
+    // Do not use `activeRoom` in decision logic here; fall back to status.
+    return room.status === 'available'
 }
 
 function canStartMaintenance(room: { status: 'available'|'booked'|'maintenance'; maintenanceStart?: string; maintenanceEnd?: string }){
-  // Disable when room not available or overlaps existing maintenance in selected dates
-  if (room.status !== 'available') return false
-  if(!filter.checkIn || !filter.checkOut) return true
-  const start = composeDateTime(filter.checkIn, 14, 0)
-  const end = composeDateTime(filter.checkOut, 12, 0)
-  if(!start || !end) return true
-  const mStart = parseISODateTime(room.maintenanceStart)
-  const mEnd = parseISODateTime(room.maintenanceEnd)
-  if(mStart && mEnd && intervalsOverlap(start, end, mStart, mEnd)) return false
-  return true
+  // Maintenance action is controlled by availability (blocking bookings). For owners/superadmin
+  // we only consider the backend-provided `availabilityStatus` when present.
+  if (typeof (room as any).availabilityStatus === 'number') return (room as any).availabilityStatus === 1
+  // When no date range is selected, allow maintenance only for available rooms.
+    // Do not use `activeRoom` for this decision.
+    return room.status === 'available'
 }
 
 async function load() {
@@ -113,10 +118,33 @@ async function load() {
     // Normalize backend shape to our Property model used by the template
     const normalizeRoomStatus = (rm: Dict): 'available' | 'booked' | 'maintenance' => {
       if (rm == null) return 'available'
+      // If backend provided availabilityStatus, prefer it (this endpoint may carry availability overrides)
+      const availNum = pick<number>(rm, ['availabilityStatus'])
+        if (typeof availNum === 'number') {
+        // If explicitly unavailable, mark as booked/unavailable
+        if (availNum !== 1) return 'booked'
+        // availNum === 1: still check maintenance overlap when client provided a filter
+        // For managers, show available so they can manage; for customers, show unavailable when maintenance overlaps.
+        if (filter.checkIn && filter.checkOut && !canManage) {
+          const mStart = pick<string>(rm, ['maintenanceStart'])
+          const mEnd = pick<string>(rm, ['maintenanceEnd'])
+          if (mStart && mEnd) {
+            try {
+              const s = composeDateTime(filter.checkIn as string, 14, 0)
+              const e = composeDateTime(filter.checkOut as string, 12, 0)
+              const ms = parseISODateTime(mStart)
+              const me = parseISODateTime(mEnd)
+              if (s && e && ms && me && intervalsOverlap(s, e, ms, me)) {
+                return 'booked'
+              }
+            } catch (ignored) {}
+          }
+        }
+        return 'available'
+      }
+      // Fallbacks when availabilityStatus not present
       const available = pick<boolean>(rm, ['available', 'isAvailable'])
       if (typeof available === 'boolean') return available ? 'available' : 'booked'
-      const availNum = pick<number>(rm, ['availabilityStatus'])
-      if (typeof availNum === 'number') return availNum === 1 ? 'available' : 'booked'
       const activeNum = pick<number>(rm, ['activeRoom'])
       if (typeof activeNum === 'number' && activeNum === 0) return 'maintenance'
       const raw = toLower(pick(rm, ['statusName', 'status']))
