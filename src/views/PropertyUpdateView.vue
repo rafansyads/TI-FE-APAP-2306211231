@@ -28,6 +28,12 @@ const ownerIdError = ref('')
 const ownerOptions = computed(() => owners.value.map(o => ({ label: `${o.name} (${o.id})`, value: o.id })))
 const toast = useToastStore()
 
+const typeToRoomTypeNames: Record<string, string[]> = {
+  Hotel: ['Single Room','Double Room','Deluxe Room','Superior Room','Suite','Family Room'],
+  Villa: ['Luxury','Beachfront','Mountside','Eco-friendly','Romantic'],
+  Apartment: ['Studio','1BR','2BR','3BR','Penthouse']
+}
+
 const form = reactive<Property>({
   id: id,
   name: '',
@@ -155,7 +161,7 @@ function onOwnerIdInput(){
   ownerIdError.value = v && !isUuid(v) ? 'Invalid UUID format' : ''
 }
 
-function newRoomType(): RoomType { return { name: '', facility: '', description: '', capacity: 0, price: 0, floor: 0, unit: 0 } }
+function newRoomType(): RoomType { return { name: '', facility: '', description: '', capacity: 0, price: 0, floor: 1, unit: 0 } }
 function addRoomType(){ form.roomTypes.push(newRoomType()) }
 
 async function submit(){
@@ -165,7 +171,7 @@ async function submit(){
     // Map existing room types (with id) to RoomTypeUpdateRequest for property-level update
     const roomTypeUpdates = (form.roomTypes || [])
       .filter(rt => !!rt.id)
-      .map(rt => ({
+        .map(rt => ({
         roomTypeId: String(rt.id),
         // name is optional and ignored at property-level; omit to avoid unintended renames
         price: Math.trunc(Number(rt.price || 0)),
@@ -173,7 +179,7 @@ async function submit(){
         capacity: Math.trunc(Number(rt.capacity || 1)),
         facility: rt.facility,
         // floor is validated in backend request; include existing value even if ignored logically
-        floor: Math.trunc(Number(rt.floor || 0))
+        floor: Math.trunc(Number(rt.floor || 1))
       }))
 
     const req = {
@@ -201,7 +207,7 @@ async function submit(){
         description: rt.description,
         capacity: Math.trunc(Number(rt.capacity || 1)),
         facility: rt.facility,
-        floor: Math.trunc(Number(rt.floor || 0)),
+        floor: Math.trunc(Number(rt.floor || 1)),
         rooms
       }
       await post('/property/updateroom', { data: addReq })
@@ -263,6 +269,16 @@ onMounted(async () => {
           <label>Property Name<input v-model="form.name" /></label>
         </div>
         <div class="grid2">
+          <label>Type
+            <select v-model="(form.type as any)">
+              <option value="Hotel">Hotel</option>
+              <option value="Villa">Villa</option>
+              <option value="Apartment">Apartment</option>
+            </select>
+          </label>
+          <span></span>
+        </div>
+        <div class="grid2">
           <label>Province
             <select v-model="form.province" :disabled="loadingProvinces">
               <option value="" disabled>Select Province</option>
@@ -294,7 +310,18 @@ onMounted(async () => {
           </div>
           <label>Description<textarea v-model="(rt.description as any)" rows="2" /></label>
           <div class="grid2">
-            <label>Capacity per Room<input type="number" v-model.number="rt.capacity" min="0" /></label>
+            <label>Room Type Name
+              <select v-model="(rt.name as any)" :disabled="!!rt.id">
+                <option value="" disabled>Select Room Type</option>
+                <option v-for="name in typeToRoomTypeNames[form.type]" :key="name" :value="name">{{ name }}</option>
+              </select>
+            </label>
+            <label>Floor
+              <input type="number" v-model.number="(rt.floor as any)" :min="1" :max="9" :disabled="!!rt.id" />
+            </label>
+          </div>
+          <div class="grid2">
+            <label>Capacity per Room<input type="number" v-model.number="rt.capacity" min="1" /></label>
             <label>Price<input type="number" v-model.number="rt.price" min="0" step="1" /></label>
           </div>
           <div class="grid2">

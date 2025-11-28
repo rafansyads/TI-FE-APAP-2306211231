@@ -336,7 +336,13 @@ function goToRoomType(roomTypeId: string) {
           <h3 class="name">{{ property?.name }}</h3>
         </div>
         <div class="header__actions">
-          <RouterLink v-if="canManage" class="btn primary" :to="`/property/updateroom/${id}`">Add Room</RouterLink>
+          <RouterLink
+            v-if="canManage"
+            class="btn primary"
+            :to="{ name: 'property-updateroom', params: { idProperty: id }, query: { type: property?.type } }"
+          >
+            Add Room
+          </RouterLink>
           <RouterLink v-if="canManage" class="btn warn" :to="`/property/update/${id}`">Update Property</RouterLink>
           <button v-if="canManage" class="btn danger" @click="showDelete = true">Delete Property</button>
         </div>

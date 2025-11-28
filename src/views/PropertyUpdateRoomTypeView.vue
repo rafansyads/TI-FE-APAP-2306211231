@@ -22,14 +22,36 @@ const typeToRoomTypeNames: Record<string, string[]> = {
 const payload = reactive<{ idProperty: string; roomTypes: RoomType[]; propertyType: 'Hotel'|'Villa'|'Apartment' }>({
   idProperty,
   propertyType: 'Hotel',
-  roomTypes: [{ name: '', facility: '', description: '', capacity: 0, price: 0, floor: 0, unit: 0 }]
+  roomTypes: [{ name: '', facility: '', description: '', capacity: 0, price: 0, floor: 1, unit: 0 }]
 })
+
+// If the parent view passed a property type via route query (e.g. ?type=Apartment or ?type=3), use it
+function normalizeType(q: unknown): 'Hotel'|'Villa'|'Apartment' {
+  if (!q) return 'Hotel'
+  const s = String(q).trim()
+  if (['Hotel','hotel','HOTEL'].includes(s)) return 'Hotel'
+  if (['Villa','villa','VILLA'].includes(s)) return 'Villa'
+  if (['Apartment','apartment','APARTMENT','Apt','apt'].includes(s)) return 'Apartment'
+  // support numeric codes like 1/2/3
+  if (s === '1') return 'Hotel'
+  if (s === '2') return 'Villa'
+  if (s === '3') return 'Apartment'
+  // fallback: try to detect keywords
+  const low = s.toLowerCase()
+  if (low.includes('hotel')) return 'Hotel'
+  if (low.includes('villa')) return 'Villa'
+  if (low.includes('apart') || low.includes('apt')) return 'Apartment'
+  return 'Hotel'
+}
+
+const qType = (route.query.type ?? route.query.propertyType) as string | undefined
+if (qType) payload.propertyType = normalizeType(qType)
 
 // RBAC: only Superadmin or Accommodation Owner can add room types
 const token = getAccessToken()
 const canManageRoomTypes = hasRole(['SUPERADMIN','ACCOMMODATION_OWNER','ROLE_SUPERADMIN','ROLE_ACCOMMODATION_OWNER'], token)
 
-function add(){ payload.roomTypes.push({ name:'', facility:'', description:'', capacity:0, price:0, floor:0, unit:0 }) }
+function add(){ payload.roomTypes.push({ name:'', facility:'', description:'', capacity:0, price:0, floor:1, unit:0 }) }
 function remove(i:number){ payload.roomTypes.splice(i,1) }
 
 async function submit(){
@@ -43,7 +65,7 @@ async function submit(){
       description: rt.description,
       capacity: Number(rt.capacity || 1),
       facility: rt.facility,
-      floor: Number(rt.floor || 0),
+      floor: Number(rt.floor || 1),
       rooms,
     }
     await post('/property/updateroom', { data: req })
@@ -81,10 +103,10 @@ async function submit(){
       </div>
       <label>Description<textarea v-model="(rt.description as any)" rows="2"/></label>
       <div class="grid4">
-        <label>Capacity<input type="number" v-model.number="rt.capacity"/></label>
-        <label>Price<input type="number" v-model.number="rt.price"/></label>
-        <label>Floor<input type="number" v-model.number="rt.floor"/></label>
-        <label>Unit<input type="number" v-model.number="(rt.unit as any)"/></label>
+        <label>Capacity<input type="number" v-model.number="rt.capacity" min="1"/></label>
+        <label>Price<input type="number" v-model.number="rt.price" min="0"/></label>
+        <label>Floor<input type="number" v-model.number="rt.floor" min="1" max="9"/></label>
+        <label>Unit<input type="number" v-model.number="(rt.unit as any)" min="0"/></label>
       </div>
       <div class="row-end">
         <button class="link danger" type="button" @click="remove(i)" v-if="payload.roomTypes.length>1">Remove</button>
