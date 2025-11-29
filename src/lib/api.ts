@@ -43,6 +43,12 @@ export async function apiFetch<T>(path: string, init: ApiInit = {}): Promise<T> 
     ;(headers as Record<string, string>)['Authorization'] = token.startsWith('Bearer') ? token : `Bearer ${token}`
   }
 
+  // attach Refresh-Token when available so backend can forward it downstream
+  const refresh = getRefreshToken()
+  if (refresh) {
+    ;(headers as Record<string, string>)['Refresh-Token'] = refresh
+  }
+
   // Only set JSON content-type when we actually send a JSON body to avoid unnecessary CORS preflight on GET
   if (init.json !== undefined) {
     ;(headers as Record<string, string>)['Content-Type'] = 'application/json'

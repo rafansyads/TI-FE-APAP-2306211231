@@ -3,7 +3,7 @@
     <h1>Welcome</h1>
     <div class="grid">
       <div class="card big" @click="openThis()">This Project<br/>(Accommodation)</div>
-      <div class="card big" @click="openPlaceholder('Payments')">Payments<br/>(placeholder)</div>
+      <div class="card big" @click="openPlaceholder('Flight & Loyalty (Flight)')">Flight & Loyalty<br/>(Flight)</div>
       <div class="card big" @click="openPlaceholder('CRM')">CRM<br/>(placeholder)</div>
       <div class="card big" @click="openPlaceholder('Analytics')">Analytics<br/>(placeholder)</div>
       <div v-if="!isCustomer" class="card big admin-card">
@@ -32,14 +32,18 @@ function openThis() {
 
 function openPlaceholder(name: string) {
   // const placeholder = `http://REPLACE_WITH_${name.toUpperCase()}_ROOT/sso/consume`
-  const placeholder = `http://localhost:5175/sso/consume` // dev placeholder
-  // Attempt to forward via backend; if backend not configured for this target, show placeholder info
-  forwardToExternal(placeholder, { source: 'accommodation-fe', returnTo: 'http://localhost:5174' })
-    .catch(() => {
-      toast.showInfo(`Placeholder external service root: ${placeholder}. Update when integrating.`, 4000)
+  const placeholder = `localhost:8082/api/external/sso/consume` // use frontend/flight app as target; helper will normalize scheme
+  // Attempt to forward via backend; include redirectTo (FE URL) so downstream can redirect back after SSO.
+  // pass stored refresh token (if any) so backend can forward it downstream
+  const refreshToken = getRefreshToken()
+  forwardToExternal(placeholder, { source: 'accommodation-fe', returnTo: 'localhost:5174/sso/consume' }, 'localhost:5174/sso/consume', refreshToken)
+    .catch((err: any) => {
+      // try to extract a helpful message from the error
+      const msg = err?.response?.data?.message || err?.message || String(err)
+      toast.showWarn(`Failed to forward request: ${msg}`, 6000)
     })
 }
-import { getAccessToken } from '@/lib/auth'
+import { getAccessToken, getRefreshToken } from '@/lib/auth'
 import { getRolesFromToken } from '@/lib/rbac'
 import AppButton from '@/components/ui/AppButton.vue'
 

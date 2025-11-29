@@ -15,7 +15,8 @@ export function setTokens(access?: string, refresh?: string, persist = true) {
   if (access) {
     // normalize if server returned `Bearer ...`
     inMemoryAccessToken = access.startsWith('Bearer') ? access : access
-    if (persist) sessionStorage.setItem(ACCESS_KEY, inMemoryAccessToken)
+    // persist access token in localStorage for SSO convenience
+    if (persist) localStorage.setItem(ACCESS_KEY, inMemoryAccessToken)
     auth.setAuthenticated(true)
     // parse claims if possible
     try {
@@ -33,12 +34,6 @@ export function setTokens(access?: string, refresh?: string, persist = true) {
 
 export function getAccessToken() {
   if (inMemoryAccessToken) return inMemoryAccessToken
-  const fromSession = sessionStorage.getItem(ACCESS_KEY)
-  if (fromSession) {
-    inMemoryAccessToken = fromSession
-    return inMemoryAccessToken
-  }
-  // last resort, not recommended: read from localStorage
   const fromLocal = localStorage.getItem(ACCESS_KEY)
   if (fromLocal) {
     inMemoryAccessToken = fromLocal
@@ -57,7 +52,7 @@ export function isAuthenticated() {
 
 export function clearTokens() {
   inMemoryAccessToken = undefined
-  sessionStorage.removeItem(ACCESS_KEY)
+  localStorage.removeItem(ACCESS_KEY)
   localStorage.removeItem(REFRESH_KEY)
   localStorage.removeItem(ACCESS_KEY)
   // remove persisted username/email used for refresh-on-reopen
