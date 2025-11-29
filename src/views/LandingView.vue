@@ -3,9 +3,9 @@
     <h1>Welcome</h1>
     <div class="grid">
       <div class="card big" @click="openThis()">This Project<br/>(Accommodation)</div>
-      <div class="card big" @click="openPlaceholder('Flight & Loyalty (Flight)')">Flight & Loyalty<br/>(Flight)</div>
-      <div class="card big" @click="openPlaceholder('CRM')">CRM<br/>(placeholder)</div>
-      <div class="card big" @click="openPlaceholder('Analytics')">Analytics<br/>(placeholder)</div>
+      <div class="card big" @click="openPlaceholder('Flight & Loyalty (Flight)', 0)">Flight & Loyalty<br/>(Flight)</div>
+      <div class="card big" @click="openPlaceholder('Insurance & Support (Insurance)', 1)">CRM<br/>(placeholder)</div>
+      <div class="card big" @click="openPlaceholder('Tour & Top-Up (Tour)', 2)">Analytics<br/>(placeholder)</div>
       <div v-if="!isCustomer" class="card big admin-card">
         <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.6rem">
           <div style="font-weight:600">Admin - Users</div>
@@ -30,13 +30,27 @@ function openThis() {
   router.push({ name: 'home' })
 }
 
-function openPlaceholder(name: string) {
-  // const placeholder = `http://REPLACE_WITH_${name.toUpperCase()}_ROOT/sso/consume`
-  const placeholder = `localhost:8082/api/external/sso/consume` // use frontend/flight app as target; helper will normalize scheme
+function openPlaceholder(name: string, idx = 0) {
+  // Read allowed service lists from env; these should be comma-separated host(s)/origins.
+  const allowedBackendsRaw = (import.meta.env.VITE_ALLOWED_EXTERNAL_SERVICES as string) || ''
+  const allowedFEsRaw = (import.meta.env.VITE_ALLOWED_FE_EXTERNAL_SERVICES as string) || ''
+
+  const allowedBackends = allowedBackendsRaw.split(',').map(s => s.trim()).filter(Boolean)
+  const allowedFEs = allowedFEsRaw.split(',').map(s => s.trim()).filter(Boolean)
+
+  // Pick by index from allowed lists; fall back to first entry or hard-coded values
+  const backendBase = (allowedBackends.length > idx && idx >= 0) ? allowedBackends[idx] : (allowedBackends.length ? allowedBackends[0] : 'localhost:8082')
+  const feBase = (allowedFEs.length > idx && idx >= 0) ? allowedFEs[idx] : (allowedFEs.length ? allowedFEs[0] : 'localhost:5174')
+
+  // Ensure no trailing slash and then append the consume paths
+  const normalizeNoSlash = (u: string) => u.replace(/\/$/, '')
+  const placeholder = `${normalizeNoSlash(backendBase)}/api/external/sso/consume`
+  const returnTo = `${normalizeNoSlash(feBase)}/sso/consume`
+
   // Attempt to forward via backend; include redirectTo (FE URL) so downstream can redirect back after SSO.
   // pass stored refresh token (if any) so backend can forward it downstream
   const refreshToken = getRefreshToken()
-  forwardToExternal(placeholder, { source: 'accommodation-fe', returnTo: 'localhost:5174/sso/consume' }, 'localhost:5174/sso/consume', refreshToken)
+  forwardToExternal(placeholder, { source: 'accommodation-fe', returnTo }, returnTo, refreshToken)
     .catch((err: any) => {
       // try to extract a helpful message from the error
       const msg = err?.response?.data?.message || err?.message || String(err)
